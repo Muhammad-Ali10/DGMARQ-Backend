@@ -114,4 +114,4 @@ export {
   updateDevice,
   deleteDevice,
   toggleDeviceStatus
-}
+} 

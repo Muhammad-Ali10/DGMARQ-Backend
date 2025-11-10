@@ -1,99 +1,138 @@
+import mongoose from "mongoose";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { Region } from "../models/region.model.js";
-import { ApiResponse } from "../utils/ApiResponse.js";
+import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
+/**
+ * @desc Create a new region
+ */
 const createRegion = asyncHandler(async (req, res) => {
   const { name } = req.body;
 
-  if (!name) {
-    return res
-      .status(400)
-      .json(new ApiResponse(400, null, "Region name is required"));
+  if (!name?.trim()) {
+    throw new ApiError(400, "Region name is required");
   }
 
-  const regionExists = await Region.findOne({ name });
-
-  if (regionExists) {
-    return res
-      .status(409)
-      .json(new ApiResponse(409, null, "Region already exists"));
+  const existingRegion = await Region.findOne({
+    name: { $regex: `^${name}$`, $options: "i" },
+  });
+  if (existingRegion) {
+    throw new ApiError(409, "Region already exists");
   }
 
-  const region = await Region.create({ name });
+  const region = await Region.create({ name: name.trim() });
 
-  return res
+  res
     .status(201)
     .json(new ApiResponse(201, region, "Region created successfully"));
 });
 
+/**
+ * @desc Update region by ID
+ */
 const updateRegion = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { name } = req.body;
 
-  if (!name) {
-    return res
-      .status(400)
-      .json(new ApiResponse(400, null, "Region name is required"));
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new ApiError(400, "Invalid region ID");
   }
 
-  const region = await Region.findByIdAndUpdate(id, { name }, { new: true });
+  if (!name?.trim()) {
+    throw new ApiError(400, "Region name is required");
+  }
+
+  const region = await Region.findByIdAndUpdate(
+    id,
+    { name: name.trim() },
+    { new: true }
+  );
 
   if (!region) {
-    return res.status(404).json(new ApiResponse(404, null, "Region not found"));
+    throw new ApiError(404, "Region not found");
   }
 
-  return res
+  res
     .status(200)
     .json(new ApiResponse(200, region, "Region updated successfully"));
 });
+
+/**
+ * @desc Delete region by ID
+ */
 const deleteRegion = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new ApiError(400, "Invalid region ID");
+  }
 
   const region = await Region.findByIdAndDelete(id);
 
   if (!region) {
-    return res.status(404).json(new ApiResponse(404, null, "Region not found"));
+    throw new ApiError(404, "Region not found");
   }
 
-  return res
+  res
     .status(200)
     .json(new ApiResponse(200, null, "Region deleted successfully"));
 });
 
-
+/**
+ * @desc Get all regions with pagination + search
+ */
 const getRegions = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 5, search = "" } = req.query;
+  const { page = 1, limit = 10, search = "" } = req.query;
 
-  const regionAggregate = await Region.find({
-    name: { $regex: search, $options: "i" },
-  })
-    .skip((page - 1) * limit)
-    .limit(parseInt(limit))
-    .sort({ createdAt: -1 });
+  const query = {};
 
-  const regions = await Region.aggregatePaginate(regionAggregate, {
-    page: parseInt(page),
-    limit: parseInt(limit),
-  });
+  if (search.trim()) {
+    query.name = { $regex: search.trim(), $options: "i" };
+  }
 
-  return res
+  const regionAggregate = Region.aggregate([
+    { $match: query },
+    { $sort: { createdAt: -1 } },
+  ]);
+
+  const options = {
+    page: parseInt(page, 10),
+    limit: parseInt(limit, 10),
+  };
+
+  const regions = await Region.aggregatePaginate(regionAggregate, options);
+
+  res
     .status(200)
     .json(new ApiResponse(200, regions, "Regions fetched successfully"));
 });
 
-
-export const getRegionsById = asyncHandler(async (req, res) => {
+/**
+ * @desc Get single region by ID
+ */
+const getRegionById = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new ApiError(400, "Invalid region ID");
+  }
+
   const region = await Region.findById(id);
 
   if (!region) {
-    return res.status(404).json(new ApiResponse(404, null, "Region not found"));
+    throw new ApiError(404, "Region not found");
   }
 
-  return res
+  res
     .status(200)
     .json(new ApiResponse(200, region, "Region fetched successfully"));
 });
 
-export { createRegion, updateRegion, deleteRegion, getRegions, getRegionsById };
+export const regionController = {
+  createRegion,
+  updateRegion,
+  deleteRegion,
+  getRegions,
+  getRegionById,
+}; 

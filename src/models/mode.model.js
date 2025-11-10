@@ -1,11 +1,13 @@
 import mongoose from "mongoose";
+import mongooseAggregatePaginate from "mongoose-aggregate-paginate-v2";
 
 const modeSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, unique: true, trim: true },
     isActive: { type: Boolean, default: true },
   },
-  { timestamps: true },
-)
+  { timestamps: true }
+);
 
-export const Mode = mongoose.model("Mode", modeSchema)
+modeSchema.plugin(mongooseAggregatePaginate);
+export const Mode = mongoose.model("Mode", modeSchema);

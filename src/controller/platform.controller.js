@@ -52,6 +52,27 @@ const updatePlatform = asyncHandler(async (req, res) => {
 });
 
 
+const togglePlatformStatus = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new ApiError(400, "Invalid platform ID");
+  }
+  const platform = await Platform.findByIdAndUpdate(
+    id,
+    { isActive: !platform.isActive },
+    { new: true }
+  );
+
+  if (!platform) {
+    throw new ApiError(404, "Platform not found");
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, platform, "Platform status toggled successfully"));
+});
+
 const deletePlatform = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -71,4 +92,20 @@ const deletePlatform = asyncHandler(async (req, res) => {
 });
 
 
+const getAllPlatforms = asyncHandler(async (req, res) => {
 
+  const platforms = await Platform.find();
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, platforms, "Platforms retrieved successfully"));
+});
+
+
+export {
+  createPlatform,
+  updatePlatform,
+  deletePlatform,
+  getAllPlatforms,
+  togglePlatformStatus
+};
