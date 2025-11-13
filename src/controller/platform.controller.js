@@ -1,18 +1,19 @@
 import mongoose from "mongoose";
-import { Platform } from "../models/platform.model";
-import { ApiError } from "../utils/ApiError";
-import { ApiResponse } from "../utils/ApiResponse";
-import { asyncHandler } from "../utils/asyncHandler";
+import { Platform } from "../models/platform.model.js";
+import { ApiError } from "../utils/ApiError.js";
+import { ApiResponse } from "../utils/ApiResponse.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
-// Create a new platform
+
 const createPlatform = asyncHandler(async (req, res) => {
-  const { name, isActive } = req.body;
+  let { name, isActive = true } = req.body;
 
   if (!name) {
     throw new ApiError(400, "Platform name is required");
   }
-  const existingPlatform = await Platform.findOne({ name });
+  name = name.trim();
 
+  const existingPlatform = await Platform.findOne({ name });
   if (existingPlatform) {
     throw new ApiError(409, "Platform already exists");
   }
@@ -21,13 +22,14 @@ const createPlatform = asyncHandler(async (req, res) => {
 
   return res
     .status(201)
-    .json(new ApiResponse(201, platform, "Platform created successfully"));
+    .json(new ApiResponse(true, "Platform created successfully", platform));
 });
 
-// Update an existing platform
+
 const updatePlatform = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { name, isActive } = req.body;
+  let { name } = req.body;
+
   if (!mongoose.Types.ObjectId.isValid(id)) {
     throw new ApiError(400, "Invalid platform ID");
   }
@@ -35,10 +37,11 @@ const updatePlatform = asyncHandler(async (req, res) => {
   if (!name) {
     throw new ApiError(400, "Platform name is required");
   }
+  name = name.trim();
 
   const platform = await Platform.findByIdAndUpdate(
     id,
-    { name, isActive },
+    { name },
     { new: true }
   );
 
@@ -48,7 +51,7 @@ const updatePlatform = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(200, platform, "Platform updated successfully"));
+    .json(new ApiResponse(true, "Platform updated successfully", platform));
 });
 
 
@@ -58,9 +61,10 @@ const togglePlatformStatus = asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(id)) {
     throw new ApiError(400, "Invalid platform ID");
   }
+
   const platform = await Platform.findByIdAndUpdate(
     id,
-    { isActive: !platform.isActive },
+    [{ $set: { isActive: { $not: "$isActive" } } }],
     { new: true }
   );
 
@@ -70,8 +74,9 @@ const togglePlatformStatus = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(200, platform, "Platform status toggled successfully"));
+    .json(new ApiResponse(true, "Platform status toggled successfully", platform));
 });
+
 
 const deletePlatform = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -88,24 +93,39 @@ const deletePlatform = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(200, platform, "Platform deleted successfully"));
+    .json(new ApiResponse(true, "Platform deleted successfully", platform));
 });
 
 
 const getAllPlatforms = asyncHandler(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 20;
+  const skip = (page - 1) * limit;
+  const filter = {};
 
-  const platforms = await Platform.find();
+  if (req.query.isActive !== undefined) {
+    filter.isActive = req.query.isActive === "true";
+  }
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, platforms, "Platforms retrieved successfully"));
+  const [platforms, total] = await Promise.all([
+    Platform.find(filter).skip(skip).limit(limit).sort({ name: 1 }),
+    Platform.countDocuments(filter),
+  ]);
+
+  return res.status(200).json(
+    new ApiResponse(true, "Platforms retrieved successfully", {
+      total,
+      page,
+      limit,
+      platforms,
+    })
+  );
 });
-
 
 export {
   createPlatform,
   updatePlatform,
   deletePlatform,
   getAllPlatforms,
-  togglePlatformStatus
+  togglePlatformStatus,
 };

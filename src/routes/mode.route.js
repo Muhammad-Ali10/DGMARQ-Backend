@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { createMode, updateMode, toggleModeStatus, deleteMode, getAllModes  } from "../controller/mode.controller";
-import { verifyJWT, authorizeRoles } from "../middleware/auth.middleware";
+import { createMode, updateMode, toggleModeStatus, deleteMode, getAllModes  } from "../controller/mode.controller.js";
+import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 
 const router = Router();
 

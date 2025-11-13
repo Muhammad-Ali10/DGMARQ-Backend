@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { Genre } from "../models/Genre.js";
+import { Genre } from "../models/genre.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
@@ -99,7 +99,7 @@ const getAllGenre = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, "Genres fetched successfully", genres));
 });
 
-export const genreController = {
+export {
   createGenre,
   updateGenre,
   deleteGenre,

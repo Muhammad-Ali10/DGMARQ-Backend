@@ -1,9 +1,8 @@
-import e from "express";
-import mongoose from "mongoose";
+import mongoose, { Schema }from "mongoose";
 
 // NOTE: keyData MUST be encrypted before storing. We store metadata only here.
 // Store minimal info, avoid plaintext secrets in DB.
-const licenseKeySchema = new mongoose.Schema(
+const licenseKeySchema = new Schema(
   {
     productId: { type: Schema.Types.ObjectId, ref: "Product", required: true, index: true },
     keyData: { type: String, required: true }, // encrypted JSON string (username/password/license etc.) - encrypt in app before save

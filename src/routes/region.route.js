@@ -3,7 +3,7 @@ import {
   createRegion,
   updateRegion,
   deleteRegion,
-  getRegions,
+  getRegions, 
   getRegionById,
 } from "../controller/region.controller.js";
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";

@@ -1,7 +1,7 @@
 import mongoose, { Schema } from "mongoose";
 
 
-const productSchema = new Schema(
+const productSchema = new Schema( 
   { 
     sellerId: { type: Schema.Types.ObjectId, ref: "Seller", required: true, index: true },
     categoryId: { type: Schema.Types.ObjectId, ref: "Category", required: true, index: true },
@@ -18,6 +18,7 @@ const productSchema = new Schema(
     type: { type: Schema.Types.ObjectId, ref: "Type"},  
     genre:{type: Schema.Types.ObjectId, ref: "Genre"},
     mode: { type: Schema.Types.ObjectId, ref: "Mode" },
+    device: [{ type: Schema.Types.ObjectId, ref: "Device" }],
     rating: { type: Number, default: 0 },
     isFeatured: { type: Boolean, default: false },
     // seller-visible stock of keys vs. physical stock: for license keys stock derived from LicenseKey available count

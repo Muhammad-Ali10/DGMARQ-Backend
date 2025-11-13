@@ -2,10 +2,12 @@ import { Router } from "express";
 import {
   createGenre,
   updateGenre,
-  getGenres,
+  getAllGenre,
   deleteGenre,
 } from "../controller/genre.controller.js";
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
+
+ 
 
 const router = Router();
 router
@@ -17,7 +19,7 @@ router
 router
   .route("/delete-genre/:genreId")
   .delete(verifyJWT, authorizeRoles("admin"), deleteGenre);
-router.route("/get-genres").get(getGenres);
+router.route("/get-genres").get(getAllGenre);
 
 export default router;
 

@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { createDevice, updateDevice, getDevices, getDeviceById, deleteDevice, toggleDeviceStatus } from "../controller/device.controller";
-import { verifyJWT, authorizeRoles } from "../middleware/auth.middleware";
+import { createDevice, updateDevice, getDevices, getDeviceById, deleteDevice, toggleDeviceStatus } from "../controller/device.controller.js";
+import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 
 const router = Router();
 

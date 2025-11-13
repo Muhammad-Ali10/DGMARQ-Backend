@@ -128,8 +128,8 @@ const getRegionById = asyncHandler(async (req, res) => {
     .status(200)
     .json(new ApiResponse(200, region, "Region fetched successfully"));
 });
-
-export const regionController = {
+ 
+export{
   createRegion,
   updateRegion,
   deleteRegion,
