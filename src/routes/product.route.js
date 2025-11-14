@@ -1,20 +1,39 @@
 import { Router } from "express";
-import { authorizeRoles, verifyJWT } from "../middlerwares/authmiddlerware.js";
+import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 import { upload } from "../middlerwares/multer.middlerware.js";
-import {createProduct, updateProduct, updateProductImages, deleteProduct} from "../controller/product.controller.js";
+import {
+  createProduct,
+  updateProductImages,
+  deleteProduct,
+  getProducts,
+} from "../controller/product.controller.js";
 
 
-const router = Router()
+const router = Router();
 
-router.route("/create-product").post(verifyJWT, authorizeRoles("seller"), upload.fields([
-    { name: "images", maxCount: 5 },
-]), createProduct)
-router.route("/update-product/:id").patch(verifyJWT, authorizeRoles("seller"), updateProduct)
-router.route("/update-product-images/:id").patch(verifyJWT, authorizeRoles("seller"), upload.fields([
-    { name: "images", maxCount: 5 },
-]), updateProductImages)
-router.route("/delete-product/:id").delete(verifyJWT, authorizeRoles("seller"), deleteProduct)
+router.post(
+  "/create-product",
+  verifyJWT,
+  authorizeRoles("seller"),
+  upload.fields([{ name: "images", maxCount: 5 }]),
+  createProduct
+);
 
+router.patch(
+  "/update-product-images/:id",
+  verifyJWT,
+  authorizeRoles("seller"),
+  upload.fields([{ name: "images", maxCount: 5 }]),
+  updateProductImages
+);
 
-export default router   
+router.delete(
+  "/delete-product/:id",
+  verifyJWT,
+  authorizeRoles("seller"),
+  deleteProduct
+);
 
+router.get("/get-products", getProducts);
+
+export default router;

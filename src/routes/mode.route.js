@@ -5,10 +5,10 @@ import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 const router = Router();
 
 router.route("/create-mode").post(verifyJWT, authorizeRoles("admin"), createMode);
-router.route("/update-mode/:id").patch(verifyJWT, authorizeRoles("admin"), updateMode);
-router.route("/toggle-mode-status/:id").post(verifyJWT, authorizeRoles("admin"), toggleModeStatus); 
-router.route("/delete-mode/:id").delete(verifyJWT, authorizeRoles("admin"), deleteMode);
+router.route("/update-mode/:modeId").patch(verifyJWT, authorizeRoles("admin"), updateMode);
+router.route("/toggle-mode-status/:modeId").post(verifyJWT, authorizeRoles("admin"), toggleModeStatus); 
+router.route("/delete-mode/:modeId").delete(verifyJWT, authorizeRoles("admin"), deleteMode);
 router.route("/get-modes").get(getAllModes);
 
-
+ 
 export default router;  

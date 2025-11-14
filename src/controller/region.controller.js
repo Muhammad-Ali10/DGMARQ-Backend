@@ -4,6 +4,7 @@ import { Region } from "../models/region.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
+
 /**
  * @desc Create a new region
  */
@@ -28,14 +29,19 @@ const createRegion = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, region, "Region created successfully"));
 });
 
+
+
 /**
  * @desc Update region by ID
  */
 const updateRegion = asyncHandler(async (req, res) => {
-  const { id } = req.params;
+  const { regionId } = req.params;
   const { name } = req.body;
 
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  console.log(regionId);
+
+
+  if (!mongoose.Types.ObjectId.isValid(regionId)) {
     throw new ApiError(400, "Invalid region ID");
   }
 
@@ -44,7 +50,7 @@ const updateRegion = asyncHandler(async (req, res) => {
   }
 
   const region = await Region.findByIdAndUpdate(
-    id,
+    regionId,
     { name: name.trim() },
     { new: true }
   );
@@ -58,17 +64,18 @@ const updateRegion = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, region, "Region updated successfully"));
 });
 
+
 /**
  * @desc Delete region by ID
  */
 const deleteRegion = asyncHandler(async (req, res) => {
-  const { id } = req.params;
+  const { regionId } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!mongoose.Types.ObjectId.isValid(regionId)) {
     throw new ApiError(400, "Invalid region ID");
   }
 
-  const region = await Region.findByIdAndDelete(id);
+  const region = await Region.findByIdAndDelete(regionId);
 
   if (!region) {
     throw new ApiError(404, "Region not found");
@@ -78,6 +85,8 @@ const deleteRegion = asyncHandler(async (req, res) => {
     .status(200)
     .json(new ApiResponse(200, null, "Region deleted successfully"));
 });
+
+
 
 /**
  * @desc Get all regions with pagination + search
@@ -108,17 +117,19 @@ const getRegions = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, regions, "Regions fetched successfully"));
 });
 
+
+
 /**
  * @desc Get single region by ID
  */
 const getRegionById = asyncHandler(async (req, res) => {
-  const { id } = req.params;
+  const { regionId } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(id)) {
+  if (!mongoose.Types.ObjectId.isValid(regionId)) {
     throw new ApiError(400, "Invalid region ID");
   }
 
-  const region = await Region.findById(id);
+  const region = await Region.findById(regionId);
 
   if (!region) {
     throw new ApiError(404, "Region not found");

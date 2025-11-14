@@ -1,6 +1,7 @@
-import { asyncHandler } from "../utils/asyncHandler.js";
-import { ApiResponse } from "../utils/ApiResponse.js";
 import mongoose from "mongoose";
+import { ApiError } from "../utils/ApiError.js";
+import { ApiResponse } from "../utils/ApiResponse.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 import { Product } from "../models/product.model.js";
 import { Platform } from "../models/platform.model.js";
@@ -10,129 +11,180 @@ import { Genre } from "../models/genre.model.js";
 import { Mode } from "../models/mode.model.js";
 import { Device } from "../models/device.model.js";
 import { LicenseKey } from "../models/licensekey.model.js";
+import { fileDelete } from "../utils/deletecloudinary.js";
+import {
+  validateMongoIds,
+  checkModelRefs,
+  checkDuplicateRecord,
+  uploadImages,
+  fetchProducts
+} from "../services/product.service.js";
 
-import { validateIds, checkRefs, checkDuplicate, uploadFiles, handleLicenseStock } from "../services/product.service.js";
-import { ApiError } from "../utils/ApiError.js"
-
-
-
-// ------------------- CREATE PRODUCT -------------------
+// Create Product
 const createProduct = asyncHandler(async (req, res) => {
-  const sellerId = req.user;
+  const userId = req.user;
   const files = req.files;
 
-  let { categoryId, subCategoryId, name, slug, description, price, stock, platform, region, type, device, genre, mode, isFeatured=false, discount=0 } = req.body;
+  let {
+    categoryId,
+    subCategoryId,
+    name,
+    slug,
+    description,
+    price,
+    stock,
+    platform,
+    region,
+    type,
+    genre,
+    mode,
+    device,
+    isFeatured = false,
+    discount = 0,
+  } = req.body;
 
-  name = name?.trim(); 
-  slug = slug?.trim(); 
-  description = description?.trim();
+  if (!name || !slug || !price || !description)
+    throw new ApiError(400, "Missing required fields");
 
-  if (!name || !slug || !price || !description) throw new ApiError(400, "Missing required fields");
+  validateMongoIds(
+    [
+      { id: userId, name: "Seller" },
+      { id: categoryId, name: "Category" },
+      { id: subCategoryId, name: "SubCategory", optional: true },
+      { id: platform, name: "Platform" },
+      { id: region, name: "Region" },
+      { id: type, name: "Type" },
+      { id: genre, name: "Genre" },
+      { id: mode, name: "Mode" },
+      { id: device, name: "Device", optional: true }
+    ],
+    files
+  );
 
-  // --- Validate IDs
-  validateIds([
-    { id: sellerId, name: "Seller" },
-    { id: categoryId, name: "Category" },
-    { id: subCategoryId, name: "SubCategory", optional: true },
-    { id: platform, name: "Platform" },
-    { id: region, name: "Region" },
-    { id: type, name: "Type" },
-    { id: genre, name: "Genre" },
-    { id: mode, name: "Mode" },
-    { id: device, name: "Device", optional: true }
-  ]);
+  await checkModelRefs(
+    [
+      { model: Platform, id: platform, name: "Platform" },
+      { model: Region, id: region, name: "Region" },
+      { model: Type, id: type, name: "Type" },
+      { model: Genre, id: genre, name: "Genre" },
+      { model: Mode, id: mode, name: "Mode" },
+      { model: Device, id: device, name: "Device", optional: true }
+    ],
+    files
+  );
 
-  // --- Reference Checks
-  await checkRefs([
-    { model: Platform, id: platform, name: "Platform" },
-    { model: Region, id: region, name: "Region" },
-    { model: Type, id: type, name: "Type" },
-    { model: Genre, id: genre, name: "Genre" },
-    { model: Mode, id: mode, name: "Mode" },
-    { model: Device, id: device, name: "Device", optional: true }
-  ]);
+  await checkDuplicateRecord(Product, { $or: [{ name }, { slug }] }, files);
 
-  // --- License stock
-  const licenseStock = await handleLicenseStock(type, Type, LicenseKey);
-  if (licenseStock !== null) stock = licenseStock;
+  const uploaded = await uploadImages(files);
+  const images = uploaded.map(i => i.url);
+  const publicId = uploaded.map(i => i.public_id);
 
-  // --- Duplicate check
-  await checkDuplicate(Product, { $or: [{ name }, { slug }] });
+  const product = await Product.create({
+    sellerId: userId,
+    categoryId,
+    subCategoryId,
+    name,
+    slug,
+    description,
+    price,
+    stock,
+    images,
+    publicId,
+    platform,
+    region,
+    type,
+    genre,
+    mode,
+    device,
+    isFeatured,
+    discount
+  });
 
-  // --- Upload Images
-  const images = await uploadFiles(files);
-
-  // --- Create Product
-  const product = await Product.create({ sellerId, categoryId, subCategoryId, name, slug, description, price, stock, images, platform, region, type, genre, mode, device, isFeatured, discount });
-  res.status(201).json(new ApiResponse(true, "Product created successfully", product));
+  return res
+    .status(201)
+    .json(new ApiResponse(true, "Product created successfully", product));
 });
 
-// ------------------- UPDATE PRODUCT -------------------
-const updateProduct = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const { categoryId, subCategoryId, name, slug, description, price, stock, platform, region, type, device, genre, mode, isFeatured=false, discount=0 } = req.body;
-
-  if (!mongoose.Types.ObjectId.isValid(id)) throw new ApiError(400, "Invalid Product ID");
-
-  // Validate IDs
-  validateIds([
-    { id: categoryId, name: "Category" },
-    { id: subCategoryId, name: "SubCategory", optional: true },
-    { id: platform, name: "Platform" },
-    { id: region, name: "Region" },
-    { id: type, name: "Type" },
-    { id: genre, name: "Genre" },
-    { id: mode, name: "Mode" },
-    { id: device, name: "Device", optional: true }
-  ]);
-
-  await checkRefs([
-    { model: Platform, id: platform, name: "Platform" },
-    { model: Region, id: region, name: "Region" },
-    { model: Type, id: type, name: "Type" },
-    { model: Genre, id: genre, name: "Genre" },
-    { model: Mode, id: mode, name: "Mode" },
-    { model: Device, id: device, name: "Device", optional: true }
-  ]);
-
-  // License stock
-  const licenseStock = await handleLicenseStock(type, Type, LicenseKey);
-  if (licenseStock !== null) stock = licenseStock;
-
-  // Duplicate check
-  await checkDuplicate(Product, { $or: [{ name }, { slug }] }, id);
-
-  const product = await Product.findByIdAndUpdate(id, { categoryId, subCategoryId, name, slug, description, price, stock, platform, region, type, genre, mode, device, isFeatured, discount }, { new: true });
-  if (!product) throw new ApiError(404, "Product not found");
-
-  res.status(200).json(new ApiResponse(true, "Product updated successfully", product));
-});
-
-// ------------------- UPDATE PRODUCT IMAGES -------------------
+// Update Images
 const updateProductImages = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const files = req.files;
+  const { removeImages = [] } = req.body;
 
-  if (!mongoose.Types.ObjectId.isValid(id)) throw new ApiError(400, "Invalid Product ID");
+  if (!mongoose.Types.ObjectId.isValid(id))
+    throw new ApiError(400, "Invalid product ID");
 
-  const images = await uploadFiles(files);
-
-  const product = await Product.findByIdAndUpdate(id, { $push: { images } }, { new: true });
+  const product = await Product.findById(id);
   if (!product) throw new ApiError(404, "Product not found");
 
-  res.status(200).json(new ApiResponse(true, "Product images updated successfully", product));
+  // Remove images
+  if (removeImages.length) {
+    for (const pid of removeImages) {
+      await fileDelete(pid);
+    }
+
+    product.images = product.images.filter(
+      (_, idx) => !removeImages.includes(product.publicId[idx])
+    );
+    product.publicId = product.publicId.filter(
+      (pid) => !removeImages.includes(pid)
+    );
+  }
+
+  // Add new images
+  if (files && Object.keys(files).length > 0) {
+    const uploaded = await uploadImages(files);
+    const newUrls = uploaded.map(i => i.url);
+    const newPids = uploaded.map(i => i.public_id);
+
+    if (product.images.length + newUrls.length > 5)
+      throw new ApiError(400, "Maximum 5 images allowed");
+
+    product.images.push(...newUrls);
+    product.publicId.push(...newPids);
+  }
+
+  await product.save();
+
+  return res
+    .status(200)
+    .json(new ApiResponse(true, "Images updated successfully", product));
 });
 
-// ------------------- DELETE PRODUCT -------------------
+// Delete Product
 const deleteProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(id)) throw new ApiError(400, "Invalid Product ID");
+  if (!mongoose.Types.ObjectId.isValid(id))
+    throw new ApiError(400, "Invalid product ID");
 
-  const product = await Product.findByIdAndDelete(id);
+  const product = await Product.findById(id);
   if (!product) throw new ApiError(404, "Product not found");
 
-  res.status(200).json(new ApiResponse(true, "Product deleted successfully", product));
+  for (const pid of product.publicId) {
+    await fileDelete(pid);
+  }
+
+  await product.deleteOne();
+
+  return res
+    .status(200)
+    .json(new ApiResponse(true, "Product deleted successfully"));
 });
 
-export { createProduct, updateProduct, updateProductImages, deleteProduct };
+// Get Products
+const getProducts = asyncHandler(async (req, res) => {
+  const result = await fetchProducts(req.query);
+
+  return res
+    .status(200)
+    .json(new ApiResponse(true, "Products fetched successfully", result));
+});
+
+
+export {
+  createProduct,
+  updateProductImages,
+  deleteProduct,
+  getProducts
+};

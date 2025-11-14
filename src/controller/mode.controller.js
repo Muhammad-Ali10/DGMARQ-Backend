@@ -2,7 +2,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { Mode } from "../models/mode.model.js";
-import { mongo } from "mongoose";
+import mongoose, { mongo } from "mongoose";
 
 // ======================== CREATE MODE ========================
 const createMode = asyncHandler(async (req, res) => {
@@ -12,7 +12,9 @@ const createMode = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Mode name is required");
   }
 
-  const existing = await Mode.findOne({ name: { $regex: `^${name}$`, $options: "i" } });
+  const existing = await Mode.findOne({
+    name: { $regex: `^${name}$`, $options: "i" },
+  });
   if (existing) {
     throw new ApiError(400, "Mode with this name already exists");
   }
@@ -23,17 +25,17 @@ const createMode = asyncHandler(async (req, res) => {
     throw new ApiError(500, "Something went wrong while creating mode");
   }
 
-  res
-    .status(201)
-    .json(new ApiResponse(201, "Mode created successfully", mode));
+  res.status(201).json(new ApiResponse(201, "Mode created successfully", mode));
 });
 
 // ======================== UPDATE MODE ========================
 const updateMode = asyncHandler(async (req, res) => {
-  const { id } = req.params;
+  const { modeId } = req.params;
   const { name, isActive } = req.body;
 
-  if (!mongo.Types.ObjectId.isValid(id)) {
+  console.log(modeId);
+
+  if (!mongoose.Types.ObjectId.isValid(modeId)) {
     throw new ApiError(400, "Invalid Mode ID");
   }
 
@@ -41,8 +43,16 @@ const updateMode = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Mode name is required");
   }
 
+  const existingmode = await Mode.findOne({
+    name: { $regex: `^${name}$`, $options: "i" },
+    _id: { $ne: new mongoose.Types.ObjectId(modeId) },
+  });
+
+  if (existingmode)
+    throw new ApiError(409, "Mode with this name already exists");
+
   const mode = await Mode.findByIdAndUpdate(
-    id,
+    modeId,
     { name: name.trim(), isActive },
     { new: true }
   );
@@ -51,20 +61,18 @@ const updateMode = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Mode not found");
   }
 
-  res
-    .status(200)
-    .json(new ApiResponse(200, "Mode updated successfully", mode));
+  res.status(200).json(new ApiResponse(200, "Mode updated successfully", mode));
 });
 
 // ======================== TOGGLE MODE STATUS ========================
 const toggleModeStatus = asyncHandler(async (req, res) => {
-  const { id } = req.params;
+  const { modeId } = req.params;
 
-  if (!mongo.Types.ObjectId.isValid(id)) {
+  if (!mongo.Types.ObjectId.isValid(modeId)) {
     throw new ApiError(400, "Invalid Mode ID");
   }
 
-  const mode = await Mode.findById(id);
+  const mode = await Mode.findById(modeId);
   if (!mode) {
     throw new ApiError(404, "Mode not found");
   }
@@ -79,21 +87,19 @@ const toggleModeStatus = asyncHandler(async (req, res) => {
 
 // ======================== DELETE MODE ========================
 const deleteMode = asyncHandler(async (req, res) => {
-  const { id } = req.params;
+  const { modeId } = req.params;
 
-  if (!mongo.Types.ObjectId.isValid(id)) {
+  if (!mongoose.Types.ObjectId.isValid(modeId)) {
     throw new ApiError(400, "Invalid Mode ID");
   }
 
-  const mode = await Mode.findByIdAndDelete(id);
+  const mode = await Mode.findByIdAndDelete(modeId);
 
   if (!mode) {
     throw new ApiError(404, "Mode not found");
   }
 
-  res
-    .status(200)
-    .json(new ApiResponse(200, "Mode deleted successfully", mode));
+  res.status(200).json(new ApiResponse(200, "Mode deleted successfully", mode));
 });
 
 // ======================== GET ALL MODES ========================
@@ -125,13 +131,5 @@ const getAllModes = asyncHandler(async (req, res) => {
     .status(200)
     .json(new ApiResponse(200, "Modes fetched successfully", result));
 });
- 
 
-export {
-  createMode,
-  updateMode,
-  toggleModeStatus,
-  deleteMode,
-  getAllModes,
-};
- 
+export { createMode, updateMode, toggleModeStatus, deleteMode, getAllModes };

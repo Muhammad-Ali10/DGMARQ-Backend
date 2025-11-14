@@ -38,8 +38,8 @@ import regionRouter from "./routes/region.route.js"
 import genreRouter from "./routes/genre.route.js"
 import themeRouter from "./routes/theme.route.js"
 import modeRouter from "./routes/mode.route.js"
-import productRouter from "./routes/product.route.js"
 import typeRouter from "./routes/type.route.js"
+import productRouter from "./routes/product.route.js"
 
 
 app.use("/api/v1/user", userRouter)
