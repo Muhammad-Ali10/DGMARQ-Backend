@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import mongooseAggregatePaginate from "mongoose-aggregate-paginate-v2";
-const productTypeSchema = new mongoose.Schema(
+
+const type = new mongoose.Schema(
     {
         name: {
             type: String,
@@ -16,6 +17,6 @@ const productTypeSchema = new mongoose.Schema(
     { timestamps: true },
 )
 
-productTypeSchema.plugin(mongooseAggregatePaginate);
-export const ProductType = mongoose.model("ProductType", productTypeSchema)
+type.plugin(mongooseAggregatePaginate);
+export const Type = mongoose.model("Type", type)
  

@@ -41,6 +41,16 @@ const updateGenre = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Genre name is required");
   }
 
+  const existing = await Genre.findOne({
+    name: { $regex: `^${name}$`, $options: "i" },
+    _id: { $ne: id },
+  });
+
+  if (existing) {
+    throw new ApiError(400, "Genre already exists");
+  }
+
+
   const genre = await Genre.findByIdAndUpdate(
     id,
     { name: name.trim() },

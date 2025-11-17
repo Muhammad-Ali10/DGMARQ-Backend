@@ -14,10 +14,10 @@ router
   .route("/create-genre")
   .post(verifyJWT, authorizeRoles("admin"), createGenre);
 router
-  .route("/update-genre/:genreId")
+  .route("/update-genre/:id")
   .patch(verifyJWT, authorizeRoles("admin"), updateGenre);
 router
-  .route("/delete-genre/:genreId")
+  .route("/delete-genre/:id")
   .delete(verifyJWT, authorizeRoles("admin"), deleteGenre);
 router.route("/get-genres").get(getAllGenre);
 

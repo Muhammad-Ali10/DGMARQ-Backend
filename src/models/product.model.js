@@ -29,13 +29,14 @@ const productSchema = new Schema(
     type: { type: Schema.Types.ObjectId, ref: "Type" },
     genre: { type: Schema.Types.ObjectId, ref: "Genre" },
     mode: { type: Schema.Types.ObjectId, ref: "Mode" },
-    device: [{ type: Schema.Types.ObjectId, ref: "Device" }],
+    device: { type: Schema.Types.ObjectId, ref: "Device" },
+    theme: { type: Schema.Types.ObjectId, ref: "Theme" },
     rating: { type: Number, default: 0 },
     isFeatured: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
-
+ 
 productSchema.index({ platform: 1, region: 1, type: 1 });
 productSchema.index({ name: "text", description: "text" });
 productSchema.plugin(mongooseAggregatePaginate);

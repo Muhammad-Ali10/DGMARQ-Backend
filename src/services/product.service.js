@@ -6,6 +6,8 @@ import { Product } from "../models/product.model.js";
 
 export const validateMongoIds = (items, files) => {
   for (const { id, name, optional } of items) {
+          console.log(id)
+
     if ((!optional && !id) || (id && !mongoose.Types.ObjectId.isValid(id))) {
       fileDeleteFromCloud(files);
       throw new ApiError(400, `Invalid ${name} ID`);
@@ -72,6 +74,7 @@ export const prepareQueryFilters = (query) => {
     "genre",
     "mode",
     "device",
+    "theme"
   ];
 
   objectIdFields.forEach((key) => {
@@ -100,7 +103,8 @@ export const lookupStages = [
   { from: "genres", localField: "genre", as: "genre" },
   { from: "modes", localField: "mode", as: "mode" },
   { from: "devices", localField: "device", as: "device" },
-  { from: "sellers", localField: "sellerId", as: "seller" },
+  { from: "sellers", localField: "userId", as: "seller" },
+  { from: "themes", localField: "theme", as: "theme" },
 ].map((l) => ({
   $lookup: {
     from: l.from,
@@ -110,6 +114,8 @@ export const lookupStages = [
   },
 }));
 
+
+console.log(lookupStages);
 export const fetchProducts = async (query) => {
  
   const match = prepareQueryFilters(query);
@@ -132,13 +138,14 @@ export const fetchProducts = async (query) => {
         createdAt: 1,
         "category.name": 1,
         "subCategory.name": 1,
-        "seller.name": 1,
+        "shopName": 1,
         "platform.name": 1,
         "region.name": 1,
         "type.name": 1,
         "genre.name": 1,
         "mode.name": 1,
         "device.name": 1,
+        "theme.name": 1,
       },
     },
   ];

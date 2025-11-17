@@ -6,11 +6,12 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { Product } from "../models/product.model.js";
 import { Platform } from "../models/platform.model.js";
 import { Region } from "../models/region.model.js";
-import { ProductType as Type } from "../models/type.model.js";
+import { Type } from "../models/type.model.js";
 import { Genre } from "../models/genre.model.js";
 import { Mode } from "../models/mode.model.js";
 import { Device } from "../models/device.model.js";
 import { LicenseKey } from "../models/licensekey.model.js";
+import { Theme } from "../models/theme.model.js";
 import { fileDelete } from "../utils/deletecloudinary.js";
 import {
   validateMongoIds,
@@ -39,6 +40,7 @@ const createProduct = asyncHandler(async (req, res) => {
     genre,
     mode,
     device,
+    theme,
     isFeatured = false,
     discount = 0,
   } = req.body;
@@ -56,7 +58,8 @@ const createProduct = asyncHandler(async (req, res) => {
       { id: type, name: "Type" },
       { id: genre, name: "Genre" },
       { id: mode, name: "Mode" },
-      { id: device, name: "Device", optional: true }
+      { id: device, name: "Device", optional: true },
+      { id: theme, name: "Theme", optional: true }
     ],
     files
   );
@@ -68,7 +71,8 @@ const createProduct = asyncHandler(async (req, res) => {
       { model: Type, id: type, name: "Type" },
       { model: Genre, id: genre, name: "Genre" },
       { model: Mode, id: mode, name: "Mode" },
-      { model: Device, id: device, name: "Device", optional: true }
+      { model: Device, id: device, name: "Device", optional: true },
+      { model: Theme, id: theme, name: "Theme", optional: true }
     ],
     files
   );
@@ -96,6 +100,7 @@ const createProduct = asyncHandler(async (req, res) => {
     genre,
     mode,
     device,
+    theme,
     isFeatured,
     discount
   });
