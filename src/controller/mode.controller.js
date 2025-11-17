@@ -2,7 +2,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { Mode } from "../models/mode.model.js";
-import mongoose, { mongo } from "mongoose";
+import mongoose from "mongoose";
 
 // ======================== CREATE MODE ========================
 const createMode = asyncHandler(async (req, res) => {
