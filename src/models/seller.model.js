@@ -33,10 +33,6 @@ const sellerSchema = new mongoose.Schema({
     city: {
         type: String
     },
-    status: {
-        type: String,
-        default: 'pending'
-    },
     // payout info: for PayPal we'll store email; for other methods store masked/identifier
     payoutAccount: {
         type: String,

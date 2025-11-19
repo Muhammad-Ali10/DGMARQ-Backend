@@ -6,34 +6,35 @@ import {
   updateProductImages,
   deleteProduct,
   getProducts,
+  updateProduct,
 } from "../controller/product.controller.js";
 
 
 const router = Router();
 
-router.post(
-  "/create-product",
+router.route("/create-product").post(
   verifyJWT,
-  authorizeRoles("seller"),
-  upload.fields([{ name: "images", maxCount: 5 }]),
+  authorizeRoles("admin", "seller"),
+  upload.array("images", 5),
   createProduct
 );
-
-router.patch(
-  "/update-product-images/:id",
+router.route("/update-product-images/:id").patch(
   verifyJWT,
-  authorizeRoles("seller"),
-  upload.fields([{ name: "images", maxCount: 5 }]),
+  authorizeRoles("admin", "seller"),
+  upload.array("images", 5),
   updateProductImages
 );
-
-router.delete(
-  "/delete-product/:id",
+router.route("/delete-product/:id").delete(
   verifyJWT,
-  authorizeRoles("seller"),
+  authorizeRoles("admin", "seller"),
   deleteProduct
 );
+router.route("/update-product/:id").patch(
+  verifyJWT,
+  authorizeRoles("admin", "seller"),
+  updateProduct
+);
 
-router.get("/get-products", getProducts);
+router.route("/get-products").get(getProducts);
 
 export default router;

@@ -40,6 +40,9 @@ import themeRouter from "./routes/theme.route.js"
 import modeRouter from "./routes/mode.route.js"
 import typeRouter from "./routes/type.route.js"
 import productRouter from "./routes/product.route.js"
+import cartRouter from "./routes/cart.router.js"
+import wishlistRouter from "./routes/wishlist.router.js"
+
 
 
 app.use("/api/v1/user", userRouter)
@@ -54,7 +57,8 @@ app.use("/api/v1/genre", genreRouter)
 app.use("/api/v1/theme", themeRouter)
 app.use("/api/v1/type", typeRouter)
 app.use("/api/v1/product", productRouter)
-
+app.use("/api/v1/cart", cartRouter)
+app.use("/api/v1/wishlist", wishlistRouter)
 
 
 app.use(errorHandler)

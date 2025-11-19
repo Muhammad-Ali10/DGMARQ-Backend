@@ -1,8 +1,10 @@
-import mongoose from "mongoose";
+import mongoose, { model } from "mongoose";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
+import { Category } from "../models/category.model.js";
+import { SubCategory } from "../models/subcategory.model.js";
 import { Product } from "../models/product.model.js";
 import { Platform } from "../models/platform.model.js";
 import { Region } from "../models/region.model.js";
@@ -18,7 +20,10 @@ import {
   checkModelRefs,
   checkDuplicateRecord,
   uploadImages,
-  fetchProducts
+  fetchProducts,
+  updateValidateMongoIds,
+  updateCheckModelRefs,
+  updateCheckDuplicateRecord
 } from "../services/product.service.js";
 
 // Create Product
@@ -59,7 +64,7 @@ const createProduct = asyncHandler(async (req, res) => {
       { id: genre, name: "Genre" },
       { id: mode, name: "Mode" },
       { id: device, name: "Device", optional: true },
-      { id: theme, name: "Theme", optional: true }
+      { id: theme, name: "Theme", optional: true },
     ],
     files
   );
@@ -72,7 +77,7 @@ const createProduct = asyncHandler(async (req, res) => {
       { model: Genre, id: genre, name: "Genre" },
       { model: Mode, id: mode, name: "Mode" },
       { model: Device, id: device, name: "Device", optional: true },
-      { model: Theme, id: theme, name: "Theme", optional: true }
+      { model: Theme, id: theme, name: "Theme", optional: true },
     ],
     files
   );
@@ -80,8 +85,8 @@ const createProduct = asyncHandler(async (req, res) => {
   await checkDuplicateRecord(Product, { $or: [{ name }, { slug }] }, files);
 
   const uploaded = await uploadImages(files);
-  const images = uploaded.map(i => i.url);
-  const publicId = uploaded.map(i => i.public_id);
+  const images = uploaded.map((i) => i.url);
+  const publicId = uploaded.map((i) => i.public_id);
 
   const product = await Product.create({
     sellerId: userId,
@@ -102,7 +107,7 @@ const createProduct = asyncHandler(async (req, res) => {
     device,
     theme,
     isFeatured,
-    discount
+    discount,
   });
 
   return res
@@ -139,8 +144,8 @@ const updateProductImages = asyncHandler(async (req, res) => {
   // Add new images
   if (files && Object.keys(files).length > 0) {
     const uploaded = await uploadImages(files);
-    const newUrls = uploaded.map(i => i.url);
-    const newPids = uploaded.map(i => i.public_id);
+    const newUrls = uploaded.map((i) => i.url);
+    const newPids = uploaded.map((i) => i.public_id);
 
     if (product.images.length + newUrls.length > 5)
       throw new ApiError(400, "Maximum 5 images allowed");
@@ -177,6 +182,85 @@ const deleteProduct = asyncHandler(async (req, res) => {
     .json(new ApiResponse(true, "Product deleted successfully"));
 });
 
+const updateProduct = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  let {
+    categoryId,
+    subCategoryId,
+    name,
+    slug,
+    description,
+    price,
+    stock,
+    platform,
+    region,
+    type,
+    genre,
+    mode,
+    device,
+    theme,
+    isFeatured = false,
+    discount = 0,
+  } = req.body;
+
+  if (!name || !slug || !price || !description)
+    throw new ApiError(400, "Missing required fields");
+
+  updateValidateMongoIds([
+    { id: categoryId, name: "Category", optional: true },
+    { id: subCategoryId, name: "SubCategory", optional: true },
+    { id: platform, name: "Platform", optional: true },
+    { id: region, name: "Region", optional: true },
+    { id: type, name: "Type", optional: true },
+    { id: genre, name: "Genre", optional: true },
+    { id: mode, name: "Mode", optional: true },
+    { id: device, name: "Device", optional: true },
+    { id: theme, name: "Theme", optional: true },
+  ]);
+
+  await updateCheckModelRefs([
+    { model: Category, id: categoryId, name: "Category", optional: true },
+    { model: SubCategory, id: subCategoryId, name: "SubCategory", optional: true, },
+    { model: Platform, id: platform, name: "Platform" },
+    { model: Region, id: region, name: "Region" },
+    { model: Type, id: type, name: "Type" },
+    { model: Genre, id: genre, name: "Genre" },
+    { model: Mode, id: mode, name: "Mode" },
+    { model: Device, id: device, name: "Device", optional: true },
+    { model: Theme, id: theme, name: "Theme", optional: true },
+  ]);
+
+  await updateCheckDuplicateRecord(Product, { $or: [{ name }, { slug }] });
+
+  const product = await Product.findByIdAndUpdate(
+    id,
+    {
+      categoryId,
+      subCategoryId,
+      name,
+      slug,
+      description,
+      price,
+      stock,
+      platform,
+      region,
+      type,
+      genre,
+      mode,
+      device,
+      theme,
+      isFeatured,
+      discount,
+    },
+    { new: true }
+  );
+
+  return res
+    .status(200)
+    .json(new ApiResponse(true, "Product updated successfully", product));
+});
+
 // Get Products
 const getProducts = asyncHandler(async (req, res) => {
   const result = await fetchProducts(req.query);
@@ -186,10 +270,10 @@ const getProducts = asyncHandler(async (req, res) => {
     .json(new ApiResponse(true, "Products fetched successfully", result));
 });
 
-
 export {
   createProduct,
   updateProductImages,
   deleteProduct,
-  getProducts
+  updateProduct,
+  getProducts,
 };

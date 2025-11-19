@@ -6,7 +6,7 @@ import { Product } from "../models/product.model.js";
 
 export const validateMongoIds = (items, files) => {
   for (const { id, name, optional } of items) {
-          console.log(id)
+    console.log(id);
 
     if ((!optional && !id) || (id && !mongoose.Types.ObjectId.isValid(id))) {
       fileDeleteFromCloud(files);
@@ -24,6 +24,38 @@ export const checkModelRefs = async (items, files) => {
       fileDeleteFromCloud(files);
       throw new ApiError(404, `${name} not found`);
     }
+  }
+};
+
+export const updateValidateMongoIds = (items) => {
+  for (const { id, name, optional } of items) {
+    if ((!optional && !id) || (id && !mongoose.Types.ObjectId.isValid(id))) {
+      throw new ApiError(400, `Invalid ${name} ID`);
+    }
+  }
+};
+
+export const updateCheckModelRefs = async (items) => {
+  for (const { model, id, name, optional } of items) {
+    if (!id && optional) continue;
+
+    const exists = await model.exists({ _id: id });
+    if (!exists) {
+      throw new ApiError(404, `${name} not found`);
+    }
+  }
+};
+
+export const updateCheckDuplicateRecord = async (
+  model,
+  filters,
+  exclude = null
+) => {
+  const query = exclude ? { _id: { $ne: exclude }, ...filters } : filters;
+
+  const exists = await model.findOne(query);
+  if (exists) {
+    throw new ApiError(409, "Duplicate record exists");
   }
 };
 
@@ -74,7 +106,7 @@ export const prepareQueryFilters = (query) => {
     "genre",
     "mode",
     "device",
-    "theme"
+    "theme",
   ];
 
   objectIdFields.forEach((key) => {
@@ -84,7 +116,7 @@ export const prepareQueryFilters = (query) => {
   });
 
   if (query.search) {
-    match.name =  { $regex: query.search, $options: "i" };
+    match.name = { $regex: query.search, $options: "i" };
   }
 
   if (query.price) {
@@ -95,31 +127,47 @@ export const prepareQueryFilters = (query) => {
 };
 
 export const lookupStages = [
-  { from: "categories", localField: "categoryId", as: "category" },
-  { from: "subcategories", localField: "subCategoryId", as: "subCategory" },
-  { from: "platforms", localField: "platform", as: "platform" },
-  { from: "regions", localField: "region", as: "region" },
-  { from: "types", localField: "type", as: "type" },
-  { from: "genres", localField: "genre", as: "genre" },
-  { from: "modes", localField: "mode", as: "mode" },
-  { from: "devices", localField: "device", as: "device" },
-  { from: "sellers", localField: "userId", as: "seller" },
-  { from: "themes", localField: "theme", as: "theme" },
+  {
+    from: "categories",
+    localField: "categoryId",
+    foreignField: "_id",
+    as: "category",
+  },
+  {
+    from: "subcategories",
+    localField: "subCategoryId",
+    foreignField: "_id",
+    as: "subCategory",
+  },
+  {
+    from: "platforms",
+    localField: "platform",
+    foreignField: "_id",
+    as: "platform",
+  },
+  { from: "regions", localField: "region", foreignField: "_id", as: "region" },
+  { from: "types", localField: "type", foreignField: "_id", as: "type" },
+  { from: "genres", localField: "genre", foreignField: "_id", as: "genre" },
+  { from: "modes", localField: "mode", foreignField: "_id", as: "mode" },
+  { from: "devices", localField: "device", foreignField: "_id", as: "device" },
+  {
+    from: "sellers",
+    localField: "sellerId",
+    foreignField: "userId",
+    as: "seller",
+  },
+  { from: "themes", localField: "theme", foreignField: "_id", as: "theme" },
 ].map((l) => ({
   $lookup: {
     from: l.from,
     localField: l.localField,
-    foreignField: "_id",
+    foreignField: l.foreignField,
     as: l.as,
   },
 }));
 
-
-console.log(lookupStages);
 export const fetchProducts = async (query) => {
- 
   const match = prepareQueryFilters(query);
- console.log(match);
 
   const pipeline = [
     { $match: match },
@@ -138,7 +186,7 @@ export const fetchProducts = async (query) => {
         createdAt: 1,
         "category.name": 1,
         "subCategory.name": 1,
-        "shopName": 1,
+        "seller.shopName": 1,
         "platform.name": 1,
         "region.name": 1,
         "type.name": 1,
