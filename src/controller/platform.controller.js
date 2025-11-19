@@ -22,7 +22,7 @@ const createPlatform = asyncHandler(async (req, res) => {
 
   return res
     .status(201)
-    .json(new ApiResponse(true, "Platform created successfully", platform));
+    .json(new ApiResponse(true, platform, "Platform created successfully"));
 });
 
 
@@ -51,7 +51,7 @@ const updatePlatform = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(true, "Platform updated successfully", platform));
+    .json(new ApiResponse(true, platform, "Platform updated successfully"));
 });
 
 
@@ -74,7 +74,7 @@ const togglePlatformStatus = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(true, "Platform status toggled successfully", platform));
+    .json(new ApiResponse(true, platform, "Platform status toggled successfully"));
 });
 
 
@@ -93,7 +93,7 @@ const deletePlatform = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(true, "Platform deleted successfully", platform));
+    .json(new ApiResponse(true, platform, "Platform deleted successfully"));
 });
 
 
@@ -113,12 +113,12 @@ const getAllPlatforms = asyncHandler(async (req, res) => {
   ]);
 
   return res.status(200).json(
-    new ApiResponse(true, "Platforms retrieved successfully", {
+    new ApiResponse(true, {
       total,
       page,
       limit,
       platforms,
-    })
+    }, "Platforms retrieved successfully")
   );
 });
 

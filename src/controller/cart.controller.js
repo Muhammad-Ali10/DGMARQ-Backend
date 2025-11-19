@@ -61,7 +61,7 @@ const addItemToCart = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(true, "Item added to cart", cart));
+    .json(new ApiResponse(true, cart,"Item added to cart"));
 });
 
 const getCart = asyncHandler(async (req, res) => {
@@ -82,10 +82,10 @@ const getCart = asyncHandler(async (req, res) => {
   const total = cartItems.reduce((acc, item) => acc + item.totalPrice, 0);
 
   return res.status(200).json(
-    new ApiResponse(true, "Cart retrieved successfully", {
+    new ApiResponse(true,  {
       items: cartItems,
       total,
-    })
+    },"Cart retrieved successfully")
   );
 });
 
@@ -113,7 +113,7 @@ const removeItemFromCart = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(true, "Item removed from cart", cart));
+    .json(new ApiResponse(true, cart,"Item removed from cart"));
 });
 
 const clearCart = asyncHandler(async (req, res) => {
@@ -131,19 +131,20 @@ const clearCart = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(true, "Cart cleared successfully", cart));
+    .json(new ApiResponse(true, cart,"Cart cleared successfully" ));
 });
 
 const updateCart = asyncHandler(async (req, res) => {
-  const userId = req.user._id;
+  const  userId  = req.user._id;
   const { productId, qty } = req.body;
+
   if (!productId || qty == null) {
     throw new ApiError(400, "Missing required fields");
   }
   if (!mongoose.Types.ObjectId.isValid(productId)) {
     throw new ApiError(400, "Invalid product ID");
   }
-  const cart = await Cart.findById(userId);
+  const cart = await Cart.findOne({ userId });
 
   if (!cart) {
     throw new ApiError(404, "Cart not found");
@@ -157,14 +158,12 @@ const updateCart = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Item not found in the cart");
   }
 
-  console.log(item);
-
   item.qty = qty;
   await cart.save();
 
   return res
     .status(200)
-    .json(new ApiResponse(true, "Cart updated successfully", cart));
+    .json(new ApiResponse(true, cart,"Cart updated successfully" ));
 });
 
 export { addItemToCart, getCart, removeItemFromCart, clearCart, updateCart };

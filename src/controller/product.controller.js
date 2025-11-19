@@ -112,7 +112,7 @@ const createProduct = asyncHandler(async (req, res) => {
 
   return res
     .status(201)
-    .json(new ApiResponse(true, "Product created successfully", product));
+    .json(new ApiResponse(true, product, "Product created successfully"));
 });
 
 // Update Images
@@ -158,7 +158,7 @@ const updateProductImages = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(true, "Images updated successfully", product));
+    .json(new ApiResponse(true, product, "Images updated successfully"));
 });
 
 // Delete Product
@@ -258,7 +258,7 @@ const updateProduct = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(true, "Product updated successfully", product));
+    .json(new ApiResponse(true, product, "Product updated successfully"));
 });
 
 // Get Products
@@ -267,7 +267,7 @@ const getProducts = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(true, "Products fetched successfully", result));
+    .json(new ApiResponse(true, result, "Products fetched successfully"));
 });
 
 export {

@@ -25,7 +25,7 @@ const createMode = asyncHandler(async (req, res) => {
     throw new ApiError(500, "Something went wrong while creating mode");
   }
 
-  res.status(201).json(new ApiResponse(201, "Mode created successfully", mode));
+  res.status(201).json(new ApiResponse(201, mode, "Mode created successfully"));
 });
 
 // ======================== UPDATE MODE ========================
@@ -61,7 +61,7 @@ const updateMode = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Mode not found");
   }
 
-  res.status(200).json(new ApiResponse(200, "Mode updated successfully", mode));
+  res.status(200).json(new ApiResponse(200, mode, "Mode updated successfully"));
 });
 
 // ======================== TOGGLE MODE STATUS ========================
@@ -82,7 +82,7 @@ const toggleModeStatus = asyncHandler(async (req, res) => {
 
   res
     .status(200)
-    .json(new ApiResponse(200, "Mode status toggled successfully", mode));
+    .json(new ApiResponse(200, mode, "Mode status toggled successfully"));
 });
 
 // ======================== DELETE MODE ========================
@@ -99,7 +99,7 @@ const deleteMode = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Mode not found");
   }
 
-  res.status(200).json(new ApiResponse(200, "Mode deleted successfully", mode));
+  res.status(200).json(new ApiResponse(200, mode, "Mode deleted successfully"));
 });
 
 // ======================== GET ALL MODES ========================
@@ -129,7 +129,7 @@ const getAllModes = asyncHandler(async (req, res) => {
 
   res
     .status(200)
-    .json(new ApiResponse(200, "Modes fetched successfully", result));
+    .json(new ApiResponse(200, result, "Modes fetched successfully"));
 });
 
 export { createMode, updateMode, toggleModeStatus, deleteMode, getAllModes };

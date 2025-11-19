@@ -3,8 +3,18 @@ import mongooseAggregatePaginate from "mongoose-aggregate-paginate-v2";
 
 const productSchema = new Schema(
   {
-    sellerId: { type: Schema.Types.ObjectId, ref: "Seller", required: true, index: true },
-    categoryId: { type: Schema.Types.ObjectId, ref: "Category", required: true, index: true },
+    sellerId: {
+      type: Schema.Types.ObjectId,
+      ref: "Seller",
+      required: true,
+      index: true,
+    },
+    categoryId: {
+      type: Schema.Types.ObjectId,
+      ref: "Category",
+      required: true,
+      index: true,
+    },
     subCategoryId: { type: Schema.Types.ObjectId, ref: "SubCategory" },
     name: { type: String, required: true, index: true },
     slug: { type: String, required: true, index: true },

@@ -26,7 +26,7 @@ const checkoutSchema = new Schema(
     paypalOrderId: { type: String, default: null },
     paypalApprovalUrl: { type: String, default: null },
     status: { type: String, enum: ["pending", "expired", "paid", "cancelled"], default: "pending", index: true },
-    expiresAt: { type: Date, default: () => new Date(Date.now() + 30 * 60 * 1000) }, // 30 min expiry
+    expiresAt: { type: Date, default: () => new Date(Date.now() + 30 * 60 * 1000) },
   },
   { timestamps: true }
 );

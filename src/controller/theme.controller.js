@@ -23,7 +23,7 @@ const createTheme = asyncHandler(async (req, res) => {
   }
   res
     .status(201)
-    .json(new ApiResponse(201, "Theme created successfully", theme));
+    .json(new ApiResponse(201, theme, "Theme created successfully"));
 });
 
 const updateTheme = asyncHandler(async (req, res) => {
@@ -57,7 +57,7 @@ const updateTheme = asyncHandler(async (req, res) => {
   }
   res
     .status(200)
-    .json(new ApiResponse(200, "Theme updated successfully", theme));
+    .json(new ApiResponse(200, theme, "Theme updated successfully"));
 });
 
 const deleteTheme = asyncHandler(async (req, res) => {
@@ -72,7 +72,7 @@ const deleteTheme = asyncHandler(async (req, res) => {
   }
   res
     .status(200)
-    .json(new ApiResponse(200, "Theme deleted successfully", theme));
+    .json(new ApiResponse(200, theme, "Theme deleted successfully"));
 });
 
 const getThemes = asyncHandler(async (req, res) => {
@@ -98,7 +98,7 @@ const getThemes = asyncHandler(async (req, res) => {
 
   res
     .status(200)
-    .json(new ApiResponse(200, "Themes retrieved successfully", result));
+    .json(new ApiResponse(200, result, "Themes retrieved successfully"));
 });
 
 export { createTheme, updateTheme, deleteTheme, getThemes };

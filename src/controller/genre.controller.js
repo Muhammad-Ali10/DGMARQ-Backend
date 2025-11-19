@@ -26,7 +26,7 @@ const createGenre = asyncHandler(async (req, res) => {
 
   res
     .status(201)
-    .json(new ApiResponse(201, "Genre created successfully", genre));
+    .json(new ApiResponse(201, genre, "Genre created successfully"));
 });
 
 const updateGenre = asyncHandler(async (req, res) => {
@@ -63,7 +63,7 @@ const updateGenre = asyncHandler(async (req, res) => {
 
   res
     .status(200)
-    .json(new ApiResponse(200, "Genre updated successfully", genre));
+    .json(new ApiResponse(200, genre, "Genre updated successfully"));
 });
 
 const deleteGenre = asyncHandler(async (req, res) => {
@@ -81,7 +81,7 @@ const deleteGenre = asyncHandler(async (req, res) => {
 
   res
     .status(200)
-    .json(new ApiResponse(200, "Genre deleted successfully", genre));
+    .json(new ApiResponse(200, genre, "Genre deleted successfully"));
 });
 
 const getAllGenre = asyncHandler(async (req, res) => {
@@ -106,7 +106,7 @@ const getAllGenre = asyncHandler(async (req, res) => {
 
   res
     .status(200)
-    .json(new ApiResponse(200, "Genres fetched successfully", genres));
+    .json(new ApiResponse(200,  genres, "Genres fetched successfully"));
 });
 
 export {
