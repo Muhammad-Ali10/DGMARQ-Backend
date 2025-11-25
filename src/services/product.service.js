@@ -4,10 +4,10 @@ import { fileUploader } from "../utils/cloudinary.js";
 import { fileDeleteFromCloud } from "../utils/deleteFilesFromCloud.js";
 import { Product } from "../models/product.model.js";
 
+
+
 export const validateMongoIds = (items, files) => {
   for (const { id, name, optional } of items) {
-    console.log(id);
-
     if ((!optional && !id) || (id && !mongoose.Types.ObjectId.isValid(id))) {
       fileDeleteFromCloud(files);
       throw new ApiError(400, `Invalid ${name} ID`);
@@ -157,6 +157,12 @@ export const lookupStages = [
     as: "seller",
   },
   { from: "themes", localField: "theme", foreignField: "_id", as: "theme" },
+  {
+    from: "reviews",
+    localField: "_id",
+    foreignField: "productId",
+    as: "reviews",
+  },
 ].map((l) => ({
   $lookup: {
     from: l.from,
@@ -182,8 +188,6 @@ export const fetchProducts = async (query) => {
         stock: 1,
         images: 1,
         discount: 1,
-        isFeatured: 1,
-        createdAt: 1,
         "category.name": 1,
         "subCategory.name": 1,
         "seller.shopName": 1,
@@ -194,6 +198,14 @@ export const fetchProducts = async (query) => {
         "mode.name": 1,
         "device.name": 1,
         "theme.name": 1,
+        "reviews.rating": 1,
+        "reviews.comment": 1,
+        "reviews.user": 1,
+        isFeatured: 1,
+        averageRating: 1,
+        reviewCount: 1,
+
+        createdAt: 1,
       },
     },
   ];

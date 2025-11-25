@@ -17,7 +17,6 @@ const checkoutSchema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     items: [checkoutItemSchema],
-    currency: { type: String, default: "EUR" },
     subtotal: { type: Number, required: true },
     discount: { type: Number, default: 0 },
     totalAmount: { type: Number, required: true },

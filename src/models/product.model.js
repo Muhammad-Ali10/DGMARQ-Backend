@@ -23,6 +23,7 @@ const productSchema = new Schema(
     discount: { type: Number, default: 0 },
     stock: { type: Number, default: 0, index: true },
     images: [{ type: String }],
+    publicId: [{ type: String }],
     platform: { type: Schema.Types.ObjectId, ref: "Platform" },
     region: { type: Schema.Types.ObjectId, ref: "Region" },
     type: { type: Schema.Types.ObjectId, ref: "Type" },
@@ -30,7 +31,9 @@ const productSchema = new Schema(
     mode: { type: Schema.Types.ObjectId, ref: "Mode" },
     device: { type: Schema.Types.ObjectId, ref: "Device" },
     theme: { type: Schema.Types.ObjectId, ref: "Theme" },
-    rating: { type: Number, default: 0 },
+    reviews: [{ type: Schema.Types.ObjectId, ref: "Review" }],
+    averageRating: { type: Number, default: 0 },
+    reviewCount: { type: Number, default: 0 },
     isFeatured: { type: Boolean, default: false },
   },
   { timestamps: true }
