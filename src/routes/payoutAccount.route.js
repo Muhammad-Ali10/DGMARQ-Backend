@@ -1,0 +1,28 @@
+import express from "express";
+import {
+  linkPayoutAccount,
+  getMyPayoutAccount,
+  verifyPayoutAccount,
+  blockPayoutAccount,
+  getSellerPayoutAccount,
+  getSellersPayoutStatus,
+} from "../controller/payoutAccount.controller.js";
+import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
+import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
+
+const router = express.Router();
+
+router.use(apiRateLimiter);
+
+// Seller routes
+router.post("/link", verifyJWT, authorizeRoles("seller"), linkPayoutAccount);
+router.get("/my", verifyJWT, authorizeRoles("seller"), getMyPayoutAccount);
+
+// Admin routes
+router.patch("/:accountId/verify", verifyJWT, authorizeRoles("admin"), verifyPayoutAccount);
+router.patch("/:accountId/block", verifyJWT, authorizeRoles("admin"), blockPayoutAccount);
+router.get("/seller/:sellerId", verifyJWT, authorizeRoles("admin"), getSellerPayoutAccount);
+router.get("/sellers/status", verifyJWT, authorizeRoles("admin"), getSellersPayoutStatus);
+
+export default router;
+
