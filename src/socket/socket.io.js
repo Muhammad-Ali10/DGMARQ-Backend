@@ -12,11 +12,47 @@ import { sendSupportMessage, markMessagesAsRead } from '../services/support.serv
  * Initialize Socket.IO server
  */
 export const initializeSocketIO = (server) => {
+  // Get frontend URL from environment - same as Express CORS config
+  const corsOrigin = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const corsOrigins = [corsOrigin];
+  
+  // Add HTTPS version if HTTP is specified
+  if (corsOrigin.startsWith('http://')) {
+    const httpsOrigin = corsOrigin.replace('http://', 'https://');
+    corsOrigins.push(httpsOrigin);
+  }
+  
+  // In production, use specific origins; in development, allow localhost variants
+  const allowedOrigins = process.env.NODE_ENV === 'production' 
+    ? corsOrigins 
+    : [...corsOrigins, 'http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'];
+  
   const io = new Server(server, {
     cors: {
-      origin: ["*"],
+      origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, Postman, etc.)
+        if (!origin) return callback(null, true);
+        
+        // Check if origin is in allowed list
+        if (allowedOrigins.some(allowed => origin.startsWith(allowed))) {
+          return callback(null, true);
+        }
+        
+        // In development, allow localhost with any protocol
+        if (process.env.NODE_ENV !== 'production') {
+          if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+            return callback(null, true);
+          }
+        }
+        
+        callback(new Error('Not allowed by CORS'));
+      },
       credentials: true,
+      methods: ['GET', 'POST'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
     },
+    transports: ['websocket', 'polling'],
+    allowEIO3: true, // Allow Engine.IO v3 clients for compatibility
   });
 
   // Authentication middleware for Socket.IO
