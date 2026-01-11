@@ -285,6 +285,20 @@ const sendMessage = asyncHandler(async (req, res) => {
     .populate("senderId", "name email profileImage")
     .populate("receiverId", "name email profileImage");
 
+  // Emit socket event for real-time delivery
+  if (req.app.get('io')) {
+    const io = req.app.get('io');
+    
+    // Emit to conversation room
+    io.to(`conversation:${conversationId}`).emit('new_message', populatedMessage);
+    
+    // Emit to receiver's personal room (for notifications)
+    io.to(`user:${receiverId}`).emit('message_received', {
+      conversationId,
+      message: populatedMessage,
+    });
+  }
+
   return res.status(201).json(
     new ApiResponse(201, populatedMessage, "Message sent successfully")
   );

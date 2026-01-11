@@ -12,20 +12,10 @@ import { sendSupportMessage, markMessagesAsRead } from '../services/support.serv
  * Initialize Socket.IO server
  */
 export const initializeSocketIO = (server) => {
-  // Get frontend URL from environment - same as Express CORS config
-  const corsOrigin = process.env.FRONTEND_URL || 'http://localhost:5173';
-  const corsOrigins = [corsOrigin];
-  
-  // Add HTTPS version if HTTP is specified
-  if (corsOrigin.startsWith('http://')) {
-    const httpsOrigin = corsOrigin.replace('http://', 'https://');
-    corsOrigins.push(httpsOrigin);
-  }
-  
-  // In production, use specific origins; in development, allow localhost variants
-  const allowedOrigins = process.env.NODE_ENV === 'production' 
-    ? corsOrigins 
-    : [...corsOrigins, 'http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'];
+  // Exact allowed origins for CORS
+  const allowedOrigins = process.env.NODE_ENV === 'production'
+    ? ['https://dgmarq.com'] // Production: exact origin
+    : ['http://localhost:5173']; // Development: localhost
   
   const io = new Server(server, {
     cors: {
@@ -33,12 +23,12 @@ export const initializeSocketIO = (server) => {
         // Allow requests with no origin (mobile apps, Postman, etc.)
         if (!origin) return callback(null, true);
         
-        // Check if origin is in allowed list
-        if (allowedOrigins.some(allowed => origin.startsWith(allowed))) {
+        // Check if origin exactly matches allowed origins
+        if (allowedOrigins.includes(origin)) {
           return callback(null, true);
         }
         
-        // In development, allow localhost with any protocol
+        // In development, allow localhost variants
         if (process.env.NODE_ENV !== 'production') {
           if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
             return callback(null, true);
