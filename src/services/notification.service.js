@@ -24,12 +24,15 @@ export const createNotification = async (userId, type, title, message, data = nu
 };
 
 // Retrieves user notifications with pagination and optional unread filter
-export const getUserNotifications = async (userId, page = 1, limit = 20, unreadOnly = false) => {
+export const getUserNotifications = async (userId, page = 1, limit = 20, unreadOnly = false, type = null) => {
   const skip = (page - 1) * limit;
 
   const match = { userId: new mongoose.Types.ObjectId(userId) };
   if (unreadOnly) {
     match.isRead = false;
+  }
+  if (type) {
+    match.type = type;
   }
 
   const notifications = await Notification.find(match)
@@ -42,6 +45,7 @@ export const getUserNotifications = async (userId, page = 1, limit = 20, unreadO
   const unreadCount = await Notification.countDocuments({
     userId: new mongoose.Types.ObjectId(userId),
     isRead: false,
+    ...(type ? { type } : {}),
   });
 
   return {

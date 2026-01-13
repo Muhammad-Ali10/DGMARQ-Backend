@@ -22,7 +22,9 @@ const messageSchema = new mongoose.Schema({
 // Compound indexes for optimized queries
 // Critical: conversationId + sentAt for efficient message fetching with sorting
 messageSchema.index({ conversationId: 1, sentAt: -1 });
-// For marking messages as read
+// For marking messages as read (compound index for updateMany operations)
 messageSchema.index({ conversationId: 1, receiverId: 1, isRead: 1 });
+// For filtering non-deleted messages efficiently
+messageSchema.index({ conversationId: 1, isDeleted: 1, sentAt: -1 });
 
 export const Message = mongoose.model("Message", messageSchema);

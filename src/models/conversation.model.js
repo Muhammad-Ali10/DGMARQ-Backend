@@ -20,5 +20,9 @@ const conversationSchema = new mongoose.Schema({
 conversationSchema.index({ buyerId: 1, lastMessageAt: -1 }); // For buyer conversations list
 conversationSchema.index({ sellerId: 1, lastMessageAt: -1 }); // For seller conversations list
 conversationSchema.index({ status: 1, lastMessageAt: -1 }); // For active conversations
+// Additional indexes for common queries
+conversationSchema.index({ buyerId: 1, status: 1, lastMessageAt: -1 }); // Buyer + status
+conversationSchema.index({ sellerId: 1, status: 1, lastMessageAt: -1 }); // Seller + status
+conversationSchema.index({ orderId: 1 }); // For order-based conversations
 
 export const Conversation = mongoose.model("Conversation", conversationSchema);

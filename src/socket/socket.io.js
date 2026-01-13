@@ -1,5 +1,6 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 import { User } from '../models/user.model.js';
 import { Message } from '../models/message.model.js';
 import { Conversation } from '../models/conversation.model.js';
@@ -7,6 +8,7 @@ import { SupportChat } from '../models/support.model.js';
 import { SupportMessage } from '../models/supportMessage.model.js';
 import { Seller } from '../models/seller.model.js';
 import { sendSupportMessage, markMessagesAsRead } from '../services/support.service.js';
+import { createNotification } from '../services/notification.service.js';
 
 /**
  * Initialize Socket.IO server
@@ -41,8 +43,10 @@ export const initializeSocketIO = (server) => {
       methods: ['GET', 'POST'],
       allowedHeaders: ['Content-Type', 'Authorization'],
     },
-    transports: ['websocket', 'polling'],
+    transports: ['websocket', 'polling'], // Support both for compatibility
     allowEIO3: true, // Allow Engine.IO v3 clients for compatibility
+    pingTimeout: 60000, // 60 seconds
+    pingInterval: 25000, // 25 seconds
   });
 
   // Authentication middleware for Socket.IO
@@ -70,22 +74,23 @@ export const initializeSocketIO = (server) => {
   });
 
   io.on('connection', (socket) => {
-    console.log(`User connected: ${socket.userId}`);
-
-    // Join user's personal room
+    // User connected - join personal room
     socket.join(`user:${socket.userId}`);
 
     // Join conversation room
     socket.on('join_conversation', async (conversationId) => {
       try {
-        // Verify user has access to this conversation
-        const conversation = await Conversation.findById(conversationId);
+        // Verify user has access to this conversation (use lean() for faster lookup)
+        const [conversation, seller] = await Promise.all([
+          Conversation.findById(conversationId).lean(),
+          Seller.findOne({ userId: socket.userId }).lean()
+        ]);
+        
         if (!conversation) {
           socket.emit('error', { message: 'Conversation not found' });
           return;
         }
 
-        const seller = await Seller.findOne({ userId: socket.userId });
         const isBuyer = conversation.buyerId.toString() === socket.userId.toString();
         const isSeller = seller && conversation.sellerId.toString() === seller._id.toString();
 
@@ -116,15 +121,18 @@ export const initializeSocketIO = (server) => {
           return;
         }
 
-        // Verify conversation exists
-        const conversation = await Conversation.findById(conversationId);
+        // Verify conversation exists (use lean() for faster lookup)
+        const [conversation, seller] = await Promise.all([
+          Conversation.findById(conversationId).lean(),
+          Seller.findOne({ userId: socket.userId }).lean()
+        ]);
+        
         if (!conversation) {
           socket.emit('error', { message: 'Conversation not found' });
           return;
         }
 
         // Determine receiver
-        const seller = await Seller.findOne({ userId: socket.userId });
         let receiverId;
 
         if (conversation.buyerId.toString() === socket.userId.toString()) {
@@ -156,15 +164,39 @@ export const initializeSocketIO = (server) => {
           sentAt: new Date(),
         });
 
-        // Update conversation
-        conversation.lastMessage = messageText;
-        conversation.lastMessageAt = new Date();
-        await conversation.save();
+        // Update conversation (use updateOne for better performance with lean document)
+        await Conversation.findByIdAndUpdate(conversationId, {
+          lastMessage: messageText,
+          lastMessageAt: new Date(),
+        });
 
         // Populate message
         const populatedMessage = await Message.findById(message._id)
           .populate('senderId', 'name email profileImage')
           .populate('receiverId', 'name email profileImage');
+
+        // Create notification in database (non-blocking)
+        const senderName = populatedMessage.senderId?.name || populatedMessage.senderId?.username || 'Someone';
+        const messagePreview = messageText.length > 50 ? messageText.substring(0, 50) + '...' : messageText;
+        
+        createNotification(
+          receiverId,
+          'chat',
+          `New message from ${senderName}`,
+          messagePreview,
+          {
+            messageId: message._id.toString(),
+            conversationId: conversationId.toString(),
+            senderId: socket.userId.toString(),
+            senderName: senderName,
+            senderAvatar: populatedMessage.senderId?.profileImage || null,
+          },
+          `/user/chat?conversation=${conversationId}`, // Default route, frontend will adjust based on role
+          'high'
+        ).catch((err) => {
+          // Log error but don't block message sending
+          // Notification creation failure shouldn't prevent message delivery
+        });
 
         // Emit to conversation room
         io.to(`conversation:${conversationId}`).emit('new_message', populatedMessage);
@@ -173,6 +205,12 @@ export const initializeSocketIO = (server) => {
         io.to(`user:${receiverId}`).emit('message_received', {
           conversationId,
           message: populatedMessage,
+        });
+
+        // Emit notification update to receiver
+        io.to(`user:${receiverId}`).emit('notification_new', {
+          type: 'chat',
+          conversationId: conversationId.toString(),
         });
 
         socket.emit('message_sent', { messageId: message._id });
@@ -184,33 +222,54 @@ export const initializeSocketIO = (server) => {
     // Mark messages as read
     socket.on('mark_read', async (conversationId) => {
       try {
-        const conversation = await Conversation.findById(conversationId);
+        // Use parallel queries for better performance
+        const [conversation, seller] = await Promise.all([
+          Conversation.findById(conversationId).lean(),
+          Seller.findOne({ userId: socket.userId }).lean()
+        ]);
+        
         if (!conversation) {
           return;
         }
 
-        await Message.updateMany(
-          { conversationId, receiverId: socket.userId, isRead: false },
+        // Mark messages as read in background (non-blocking with timeout)
+        Message.updateMany(
+          { 
+            conversationId: new mongoose.Types.ObjectId(conversationId), 
+            receiverId: socket.userId, 
+            isRead: false 
+          },
           { isRead: true }
-        );
+        )
+          .maxTimeMS(5000) // 5 second timeout
+          .hint({ conversationId: 1, receiverId: 1, isRead: 1 }) // Use compound index
+          .exec()
+          .catch(() => {}); // Ignore errors
 
-        const seller = await Seller.findOne({ userId: socket.userId });
-        if (conversation.buyerId.toString() === socket.userId.toString()) {
-          conversation.unreadCountBuyer = 0;
-          conversation.lastReadByBuyer = new Date();
-        } else if (seller && conversation.sellerId.toString() === seller._id.toString()) {
-          conversation.unreadCountSeller = 0;
-          conversation.lastReadBySeller = new Date();
+        // Update conversation unread count in background (non-blocking)
+        const isBuyer = conversation.buyerId.toString() === socket.userId.toString();
+        const isSeller = seller && conversation.sellerId.toString() === seller._id.toString();
+        
+        if (isBuyer) {
+          Conversation.findByIdAndUpdate(conversationId, {
+            unreadCountBuyer: 0,
+            lastReadByBuyer: new Date()
+          }).catch(() => {}); // Non-blocking
+        } else if (isSeller) {
+          Conversation.findByIdAndUpdate(conversationId, {
+            unreadCountSeller: 0,
+            lastReadBySeller: new Date()
+          }).catch(() => {}); // Non-blocking
         }
-        await conversation.save();
 
-        // Notify other user
+        // Notify other user (non-blocking)
         io.to(`conversation:${conversationId}`).emit('messages_read', {
           conversationId,
           readBy: socket.userId,
         });
       } catch (error) {
-        socket.emit('error', { message: error.message });
+        // Don't emit error for mark_read failures - it's a background operation
+        // Logging can be added here if needed for debugging
       }
     });
 
@@ -377,7 +436,7 @@ export const initializeSocketIO = (server) => {
 
     // Disconnect
     socket.on('disconnect', () => {
-      console.log(`User disconnected: ${socket.userId}`);
+      // User disconnected - cleanup handled automatically
     });
   });
 

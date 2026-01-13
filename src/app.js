@@ -7,6 +7,9 @@ import { errorHandler } from "./middlerwares/error.middlerware.js";
 import { enforceHTTPS, securityHeaders } from "./middlerwares/https.middlerware.js";
 const app = express();
 
+// Note: Compression should be handled by reverse proxy (Nginx) in production
+// For development, you can add compression middleware if needed
+
 // Security headers for PayPal CardFields (must be before other middleware)
 app.use(securityHeaders);
 
@@ -26,8 +29,13 @@ if (corsOrigin.startsWith('http://')) {
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (mobile apps, Postman, etc.)
+      // Allow requests with no origin (mobile apps, Postman, webhooks, etc.)
       if (!origin) return callback(null, true);
+      
+      // Allow PayPal webhook origins
+      if (origin.includes('paypal.com') || origin.includes('paypalobjects.com')) {
+        return callback(null, true);
+      }
       
       // Check if origin is in allowed list
       if (corsOrigins.some(allowed => origin.startsWith(allowed))) {
@@ -44,10 +52,15 @@ app.use(
       callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-PayPal-Webhook-Id'],
   })
 );
 
+
+// IMPORTANT: Register webhook route BEFORE JSON parser to preserve raw body for signature verification
+// Webhooks need raw body for PayPal signature verification
+import webhookRouter from "./routes/webhook.route.js";
+app.use("/api/v1/webhook", webhookRouter);
 
 app.use(
   express.json({
@@ -113,7 +126,6 @@ import couponRouter from "./routes/coupon.route.js";
 import returnrefundRouter from "./routes/returnrefund.route.js";
 import analyticsRouter from "./routes/analytics.route.js";
 import bestsellerRouter from "./routes/bestseller.route.js";
-import webhookRouter from "./routes/webhook.route.js";
 import subscriptionRouter from "./routes/subscription.route.js";
 import licensekeyRouter from "./routes/licensekey.route.js";
 import supportRouter from "./routes/support.route.js";
@@ -153,7 +165,6 @@ app.use("/api/v1/coupon", couponRouter);
 app.use("/api/v1/return-refund", returnrefundRouter);
 app.use("/api/v1/analytics", analyticsRouter);
 app.use("/api/v1/bestseller", bestsellerRouter);
-app.use("/api/v1/webhook", webhookRouter);
 app.use("/api/v1/subscription", subscriptionRouter);
 app.use("/api/v1/license-key", licensekeyRouter);
 app.use("/api/v1/support", supportRouter);

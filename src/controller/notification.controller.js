@@ -13,13 +13,14 @@ import mongoose from "mongoose";
 // Retrieves user notifications with pagination and optional unread filter
 const getNotifications = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const { page = 1, limit = 20, unreadOnly = false } = req.query;
+  const { page = 1, limit = 20, unreadOnly = false, type = null } = req.query;
 
   const result = await getUserNotifications(
     userId,
     parseInt(page),
     parseInt(limit),
-    unreadOnly === 'true'
+    unreadOnly === 'true',
+    type || null
   );
 
   return res.status(200).json(
