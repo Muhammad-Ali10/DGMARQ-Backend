@@ -3,7 +3,7 @@ import { PAYOUT_STATUS } from "../constants.js";
 
 const payoutSchema = new Schema(
   {
-    orderId: { type: Schema.Types.ObjectId, ref: "Order", default: null, index: true },
+    orderId: { type: Schema.Types.ObjectId, ref: "Order", default: null },
     sellerId: { type: Schema.Types.ObjectId, ref: "Seller", required: true, index: true },
     
     requestType: { 
@@ -45,8 +45,11 @@ const payoutSchema = new Schema(
   { timestamps: true }
 );
 
+// Indexes
 payoutSchema.index({ sellerId: 1, status: 1 });
 payoutSchema.index({ sellerId: 1, requestType: 1, createdAt: -1 });
 payoutSchema.index({ holdUntil: 1, status: 1 });
+// Sparse index on orderId since it can be null (only indexes documents where orderId exists)
+payoutSchema.index({ orderId: 1 }, { sparse: true });
 
 export const Payout = mongoose.model("Payout", payoutSchema);

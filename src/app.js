@@ -7,6 +7,10 @@ import { errorHandler } from "./middlerwares/error.middlerware.js";
 import { enforceHTTPS, securityHeaders } from "./middlerwares/https.middlerware.js";
 const app = express();
 
+// Trust proxy - Required for accurate IP detection behind reverse proxy (Nginx, load balancer)
+// This fixes the express-rate-limit X-Forwarded-For header warning
+app.set('trust proxy', true);
+
 // Note: Compression should be handled by reverse proxy (Nginx) in production
 // For development, you can add compression middleware if needed
 
@@ -26,6 +30,12 @@ if (corsOrigin.startsWith('http://')) {
   corsOrigins.push(httpsOrigin);
 }
 
+// Normalize origins for comparison (remove trailing slashes)
+const normalizeOrigin = (url) => {
+  if (!url) return url;
+  return url.replace(/\/$/, '');
+};
+
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -37,8 +47,14 @@ app.use(
         return callback(null, true);
       }
       
-      // Check if origin is in allowed list
-      if (corsOrigins.some(allowed => origin.startsWith(allowed))) {
+      // Normalize origin for comparison
+      const normalizedOrigin = normalizeOrigin(origin);
+      
+      // Check if origin is in allowed list (normalized comparison)
+      if (corsOrigins.some(allowed => {
+        const normalizedAllowed = normalizeOrigin(allowed);
+        return normalizedOrigin === normalizedAllowed || normalizedOrigin.startsWith(normalizedAllowed);
+      })) {
         return callback(null, true);
       }
       
@@ -47,6 +63,11 @@ app.use(
         if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
           return callback(null, true);
         }
+      }
+      
+      // Log rejected origin for debugging (only in development)
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[CORS] Rejected origin: ${origin}, Allowed origins: ${corsOrigins.join(', ')}`);
       }
       
       callback(new Error('Not allowed by CORS'));
@@ -81,11 +102,43 @@ app.use(cookieParser());
 app.use(express.static("public"));
 
 // Session configuration for Passport
+// NOTE: MemoryStore is not suitable for production as it leaks memory and doesn't scale
+// For production, use MongoDB session store (connect-mongo)
+// To fix: 
+//   1. Install: npm install connect-mongo
+//   2. Import at top: import MongoStore from 'connect-mongo';
+//   3. Import mongoose connection: import mongoose from 'mongoose';
+//   4. Replace store: undefined with: store: MongoStore.create({ client: mongoose.connection.getClient() })
+
+let sessionStore = undefined;
+
+// TODO: Configure MongoDB session store for production
+// Uncomment and configure when connect-mongo is installed:
+// if (process.env.NODE_ENV === 'production') {
+//   import('connect-mongo').then(({ default: MongoStore }) => {
+//     import('mongoose').then(({ default: mongoose }) => {
+//       sessionStore = MongoStore.create({
+//         client: mongoose.connection.getClient(),
+//         collectionName: 'sessions',
+//         ttl: 24 * 60 * 60, // 24 hours
+//       });
+//     });
+//   }).catch(() => {
+//     console.warn('⚠️  connect-mongo not installed. Using MemoryStore (not recommended for production).');
+//   });
+// }
+
+if (process.env.NODE_ENV === 'production' && !sessionStore) {
+  console.warn('⚠️  WARNING: Using MemoryStore for sessions in production!');
+  console.warn('⚠️  This will leak memory and not scale. Install connect-mongo for production use.');
+}
+
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "dgmarq-secret-key",
     resave: false,
     saveUninitialized: false,
+    store: sessionStore, // Use MongoDB store in production, MemoryStore in development
     cookie: {
       // FIX: Enable secure cookies when using HTTPS (even in development)
       secure: process.env.NODE_ENV === "production" || process.env.USE_HTTPS === "true",
