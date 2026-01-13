@@ -8,8 +8,9 @@ import { enforceHTTPS, securityHeaders } from "./middlerwares/https.middlerware.
 const app = express();
 
 // Trust proxy - Required for accurate IP detection behind reverse proxy (Nginx, load balancer)
-// This fixes the express-rate-limit X-Forwarded-For header warning
-app.set('trust proxy', true);
+// Trust only the first proxy (Nginx) to prevent X-Forwarded-For header spoofing attacks
+// Using 1 instead of true is more secure and fixes ERR_ERL_PERMISSIVE_TRUST_PROXY warning
+app.set('trust proxy', 1);
 
 // Note: Compression should be handled by reverse proxy (Nginx) in production
 // For development, you can add compression middleware if needed
@@ -22,6 +23,7 @@ app.use(enforceHTTPS);
 
 // CORS Configuration - Support both HTTP and HTTPS origins in development
 const corsOrigin = process.env.FRONTEND_URL || 'http://localhost:5173';
+console.log(process.env.FRONTEND_URL);
 const corsOrigins = [corsOrigin];
 
 // Add HTTPS version of frontend URL if HTTP is specified
