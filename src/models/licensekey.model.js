@@ -9,6 +9,8 @@ const keyItemSchema = new Schema(
       default: 'other'
     },
     isUsed: { type: Boolean, default: false },
+    isRefunded: { type: Boolean, default: false }, // Mark as refunded permanently
+    refundedAt: Date, // When this key/account was refunded
     assignedTo: { type: Schema.Types.ObjectId, ref: "OrderItem", default: null },
     assignedToOrder: { type: Schema.Types.ObjectId, ref: "Order", default: null },
     assignedAt: Date,

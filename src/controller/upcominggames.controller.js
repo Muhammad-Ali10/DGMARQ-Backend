@@ -99,14 +99,14 @@ const addProducts = asyncHandler(async (req, res) => {
     throw new ApiError(400, "No valid product IDs provided");
   }
 
-  // Verify products exist and are active/approved
+  // Verify products exist (allow any status for upcoming games - they'll only show publicly when active/approved)
   const products = await Product.find({
     _id: { $in: validIds },
-    status: { $in: ["active", "approved"] },
+    status: { $in: ["draft", "pending", "approved", "active"] }, // Allow draft/pending for upcoming games
   });
 
   if (products.length === 0) {
-    throw new ApiError(404, "No active/approved products found with the provided IDs");
+    throw new ApiError(404, "No products found with the provided IDs (excluding rejected products)");
   }
 
   const foundProductIds = products.map((p) => p._id.toString());
@@ -126,13 +126,13 @@ const addProducts = asyncHandler(async (req, res) => {
     throw new ApiError(400, "All products are already in the upcoming games list");
   }
 
-  // Filter to only products that actually exist and are active
+  // Filter to only products that actually exist (any valid status)
   const productsToAdd = newProductIds.filter((id) =>
     foundProductIds.includes(id.toString())
   );
 
   if (productsToAdd.length === 0) {
-    throw new ApiError(400, "No valid active/approved products to add");
+    throw new ApiError(400, "No valid products to add (products may be rejected or not found)");
   }
 
   // Get current max order
@@ -377,19 +377,19 @@ const updateUpcomingGames = asyncHandler(async (req, res) => {
     throw new ApiError(400, "No valid product IDs provided");
   }
 
-  // Verify products exist and are active/approved
+  // Verify products exist (allow any status for upcoming games - they'll only show publicly when active/approved)
   const products = await Product.find({
     _id: { $in: validIds },
-    status: { $in: ["active", "approved"] },
+    status: { $in: ["draft", "pending", "approved", "active"] }, // Allow draft/pending for upcoming games
   });
 
   if (products.length === 0) {
-    throw new ApiError(404, "No active/approved products found with the provided IDs");
+    throw new ApiError(404, "No products found with the provided IDs (excluding rejected products)");
   }
 
   const foundProductIds = products.map((p) => p._id.toString());
 
-  // Filter to only products that actually exist and are active
+  // Filter to only products that actually exist (any valid status)
   const productsToSet = validIds.filter((id) =>
     foundProductIds.includes(id.toString())
   );

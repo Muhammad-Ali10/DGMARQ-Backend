@@ -6,12 +6,14 @@ const returnRefundSchema = new Schema(
     orderId: { type: Schema.Types.ObjectId, ref: "Order", required: true },
     productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    reason: String,
+    sellerId: { type: Schema.Types.ObjectId, ref: "Seller", required: true },
+    reason: { type: String, required: true },
     status: { type: String, enum: REFUND_STATUS, default: "pending" },
     refundAmount: Number,
     refundTransactionId: String, // PayPal refund transaction ID
     refundedAt: Date,
     adminNotes: String,
+    rejectionReason: String, // Required when status is 'rejected'
   },
   { timestamps: true },
 )

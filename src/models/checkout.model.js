@@ -24,9 +24,11 @@ const checkoutSchema = new Schema(
     subscriptionDiscount: { type: Number, default: 0 },
     couponDiscount: { type: Number, default: 0 },
     totalAmount: { type: Number, required: true },
+    walletAmount: { type: Number, default: 0 }, // Amount paid from wallet
+    cardAmount: { type: Number, default: 0 }, // Amount paid via card/PayPal
     couponId: { type: Schema.Types.ObjectId, ref: "Coupon", default: null },
     hasSubscription: { type: Boolean, default: false },
-    paymentMethod: { type: String, enum: ["PayPal", "Card"], default: "PayPal" },
+    paymentMethod: { type: String, enum: ["PayPal", "Card", "Wallet", "Wallet+Card"], default: "PayPal" },
     paypalOrderId: { type: String, default: null },
     paypalApprovalUrl: { type: String, default: null },
     status: { type: String, enum: ["pending", "expired", "paid", "cancelled"], default: "pending", index: true },

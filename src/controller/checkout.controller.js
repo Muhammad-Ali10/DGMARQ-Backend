@@ -10,6 +10,7 @@ import { LicenseKey } from "../models/licensekey.model.js";
 import { createPayPalOrder } from "../services/payment.service.js";
 import { validateCouponCode } from "../services/coupon.service.js";
 import { hasActiveSubscription, calculateSubscriptionDiscount } from "../services/subscription.service.js";
+import { getWalletBalance, debitWallet } from "../services/wallet.service.js";
 
 // Creates a checkout session from cart with stock validation, discounts, and PayPal order creation
 const createCheckoutSession = asyncHandler(async (req, res) => {
@@ -130,6 +131,28 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Invalid total amount');
   }
 
+  // Get wallet balance and calculate payment split
+  const walletBalance = await getWalletBalance(userId);
+  let walletAmount = 0;
+  let cardAmount = totalAmount;
+  let paymentMethod = "PayPal"; // Default
+
+  // Wallet priority: Use wallet first, then card for remaining
+  if (walletBalance > 0) {
+    if (walletBalance >= totalAmount) {
+      // Case 1: Wallet covers full amount
+      walletAmount = totalAmount;
+      cardAmount = 0;
+      paymentMethod = "Wallet";
+    } else {
+      // Case 2: Wallet covers partial amount
+      walletAmount = walletBalance;
+      cardAmount = totalAmount - walletBalance;
+      paymentMethod = "Wallet+Card";
+    }
+  }
+  // Case 3: Wallet = 0, full payment via card (default)
+
   // REMOVED: PayPal order creation from checkout/create
   // PayPal orders are now created via unified endpoint: POST /api/v1/paypal/orders
   // This separates checkout session creation from payment order creation
@@ -145,8 +168,11 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
     subscriptionDiscount: subscriptionDiscount,
     couponDiscount: couponDiscount,
     totalAmount,
+    walletAmount,
+    cardAmount,
     couponId,
     hasSubscription: hasSubscription,
+    paymentMethod,
     paypalOrderId: null, // Will be set when PayPal order is created via /api/v1/paypal/orders
     paypalApprovalUrl: null, // Not needed for CardFields/Buttons flow
     status: 'pending',
@@ -158,6 +184,10 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
       checkoutId: checkout._id,
       expiresAt: checkout.expiresAt,
       totalAmount: checkout.totalAmount,
+      walletAmount: checkout.walletAmount,
+      cardAmount: checkout.cardAmount,
+      paymentMethod: checkout.paymentMethod,
+      walletBalance, // Return current wallet balance for frontend display
       // Note: PayPal order creation happens via POST /api/v1/paypal/orders with checkoutId
     }, 'Checkout session created successfully')
   );

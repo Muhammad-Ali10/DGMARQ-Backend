@@ -22,6 +22,8 @@ import {
   updateCommissionRate,
   getAutoApproveSetting,
   updateAutoApproveSetting,
+  getHomePageSEO,
+  updateHomePageSEO,
 } from "../controller/admin.controller.js";
 const router = Router();
 
@@ -60,6 +62,7 @@ router.route("/chat/:conversationId/moderate").post(moderateChat);
 // Platform settings
 router.route("/settings/commission-rate").get(getCommissionRate).patch(updateCommissionRate);
 router.route("/settings/auto-approve-products").get(getAutoApproveSetting).patch(updateAutoApproveSetting);
+router.route("/settings/seo/home").get(getHomePageSEO).patch(updateHomePageSEO);
 
 export default router;
 

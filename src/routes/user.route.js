@@ -38,7 +38,7 @@ router.route("/register").post(
   upload.single("profileImage"),
   validate(registerValidation),
   registerUser
-)
+) 
 router.route("/login").post(
   authLimiter,
   validate(loginValidation),

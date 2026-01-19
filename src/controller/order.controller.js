@@ -19,12 +19,13 @@ import { notifyOrderCreated } from "../services/notification.service.js";
 import { schedulePayout } from "../services/payout.service.js";
 import { applyCoupon } from "../services/coupon.service.js";
 import { checkStockAfterAssignment } from "../services/stockNotification.service.js";
+import { debitWallet } from "../services/wallet.service.js";
 
 const createOrder = asyncHandler(async (req, res) => {
   const { checkoutId, paypalOrderId } = req.body;
 
-  if (!checkoutId || !paypalOrderId) {
-    throw new ApiError(400, 'Checkout ID and PayPal Order ID are required');
+  if (!checkoutId) {
+    throw new ApiError(400, 'Checkout ID is required');
   }
 
   // FIX: Don't use .lean() because we need to save the checkout later
@@ -39,51 +40,65 @@ const createOrder = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Checkout session already processed');
   }
 
-  let paypalOrder;
-  try {
-    paypalOrder = await getPayPalOrder(paypalOrderId);
-    
-    // FIX: Accept both 'APPROVED' and 'COMPLETED' status
-    // 'APPROVED' = order ready for capture
-    // 'COMPLETED' = order already captured (when called from paypalOrders.controller.js)
-    if (paypalOrder.status !== 'APPROVED' && paypalOrder.status !== 'COMPLETED') {
-      throw new ApiError(400, `PayPal order not in valid state. Status: ${paypalOrder.status}`);
+  // PayPal order is only required if cardAmount > 0
+  let paypalOrder = null;
+  let capture = null;
+  
+  if (checkout.cardAmount > 0) {
+    if (!paypalOrderId) {
+      throw new ApiError(400, 'PayPal Order ID is required when card payment is needed');
     }
-  } catch (error) {
-    throw new ApiError(400, `PayPal order verification failed: ${error.message}`);
-  }
 
-  let capture;
-  // FIX: Only capture if order is APPROVED (not already COMPLETED)
-  if (paypalOrder.status === 'APPROVED') {
     try {
-      capture = await capturePayPalPayment(paypalOrderId);
+      paypalOrder = await getPayPalOrder(paypalOrderId);
       
-      if (capture.status !== 'COMPLETED') {
-        throw new ApiError(400, 'Payment capture failed');
+      // FIX: Accept both 'APPROVED' and 'COMPLETED' status
+      // 'APPROVED' = order ready for capture
+      // 'COMPLETED' = order already captured (when called from paypalOrders.controller.js)
+      if (paypalOrder.status !== 'APPROVED' && paypalOrder.status !== 'COMPLETED') {
+        throw new ApiError(400, `PayPal order not in valid state. Status: ${paypalOrder.status}`);
       }
     } catch (error) {
-      throw new ApiError(400, `Payment capture failed: ${error.message}`);
+      throw new ApiError(400, `PayPal order verification failed: ${error.message}`);
+    }
+
+    // FIX: Only capture if order is APPROVED (not already COMPLETED)
+    if (paypalOrder.status === 'APPROVED') {
+      try {
+        capture = await capturePayPalPayment(paypalOrderId);
+        
+        if (capture.status !== 'COMPLETED') {
+          throw new ApiError(400, 'Payment capture failed');
+        }
+      } catch (error) {
+        throw new ApiError(400, `Payment capture failed: ${error.message}`);
+      }
+    } else {
+      // Order is already COMPLETED (captured), extract capture info from order
+      const captureData = paypalOrder.purchase_units?.[0]?.payments?.captures?.[0];
+      if (!captureData) {
+        throw new ApiError(400, 'Payment capture data not found in completed order');
+      }
+      
+      capture = {
+        id: captureData.id,
+        status: captureData.status || 'COMPLETED',
+        captureId: captureData.id,
+        amount: captureData.amount?.value ? parseFloat(captureData.amount.value) : null,
+        payerId: paypalOrder.payer?.payer_id || null,
+      };
+      
+      logger.info('[ORDER] Using existing capture from completed order', {
+        orderId: paypalOrderId,
+        captureId: capture.captureId,
+        status: capture.status,
+      });
     }
   } else {
-    // Order is already COMPLETED (captured), extract capture info from order
-    const captureData = paypalOrder.purchase_units?.[0]?.payments?.captures?.[0];
-    if (!captureData) {
-      throw new ApiError(400, 'Payment capture data not found in completed order');
-    }
-    
-    capture = {
-      id: captureData.id,
-      status: captureData.status || 'COMPLETED',
-      captureId: captureData.id,
-      amount: captureData.amount?.value ? parseFloat(captureData.amount.value) : null,
-      payerId: paypalOrder.payer?.payer_id || null,
-    };
-    
-    logger.info('[ORDER] Using existing capture from completed order', {
-      orderId: paypalOrderId,
-      captureId: capture.captureId,
-      status: capture.status,
+    // Full wallet payment - no PayPal needed
+    logger.info('[ORDER] Full wallet payment - no PayPal order required', {
+      checkoutId: checkout._id,
+      walletAmount: checkout.walletAmount,
     });
   }
 
@@ -104,6 +119,42 @@ const createOrder = asyncHandler(async (req, res) => {
   session.startTransaction();
 
   try {
+    // Debit wallet if walletAmount > 0 (wallet is used first, priority rule)
+    if (checkout.walletAmount > 0) {
+      try {
+        await debitWallet(
+          checkout.userId,
+          checkout.walletAmount,
+          `Payment for checkout ${checkoutId}`,
+          {
+            checkoutId: checkout._id,
+            orderType: 'purchase',
+          }
+        );
+        logger.info('[ORDER] Wallet debited successfully', {
+          userId: checkout.userId,
+          walletAmount: checkout.walletAmount,
+          checkoutId: checkout._id,
+        });
+      } catch (walletError) {
+        await session.abortTransaction();
+        session.endSession();
+        logger.error('[ORDER] Wallet debit failed', walletError);
+        throw new ApiError(400, `Wallet payment failed: ${walletError.message}`);
+      }
+    }
+
+    // Validate PayPal payment only if cardAmount > 0
+    if (checkout.cardAmount > 0 && capture) {
+      // Verify PayPal capture amount matches cardAmount
+      const captureAmount = capture.amount || parseFloat(paypalOrder.purchase_units?.[0]?.amount?.value || 0);
+      if (Math.abs(captureAmount - checkout.cardAmount) > 0.01) {
+        await session.abortTransaction();
+        session.endSession();
+        throw new ApiError(400, `Payment amount mismatch. Expected: $${checkout.cardAmount.toFixed(2)}, Received: $${captureAmount.toFixed(2)}`);
+      }
+    }
+
     const orderItems = [];
     const { getCommissionRate } = await import('../services/payout.service.js');
     const commissionRate = await getCommissionRate();
@@ -153,12 +204,16 @@ const createOrder = asyncHandler(async (req, res) => {
     }
 
     // FIX: Double-check inside transaction (race condition protection)
-    const duplicateCheck = await Order.findOne({ paypalOrderId }).session(session);
+    // Check for duplicate checkout processing
+    const duplicateCheck = await Order.findOne({ 
+      checkoutId: checkout._id,
+      paymentStatus: 'paid'
+    }).session(session);
     if (duplicateCheck) {
       await session.abortTransaction();
       session.endSession();
       logger.warn('[ORDER] Duplicate order detected during transaction', {
-        paypalOrderId,
+        checkoutId: checkout._id,
         existingOrderId: duplicateCheck._id,
       });
       return res.status(200).json(
@@ -203,11 +258,11 @@ const createOrder = asyncHandler(async (req, res) => {
       discount: checkout.discount,
       totalAmount: checkout.totalAmount,
       couponId: checkout.couponId,
-      paymentMethod: 'PayPal',
+      paymentMethod: checkout.paymentMethod || (checkout.walletAmount > 0 && checkout.cardAmount === 0 ? 'Wallet' : 'PayPal'),
       paymentStatus: 'paid',
-      paypalOrderId: paypalOrderId, // Unique index prevents duplicates
-      paypalCaptureId: capture.captureId,
-      paypalPayerId: capture.payerId || paypalOrder.payer?.payer_id || null,
+      paypalOrderId: paypalOrderId || null, // Can be null for wallet-only payments
+      paypalCaptureId: capture?.captureId || null, // Can be null for wallet-only payments
+      paypalPayerId: capture?.payerId || paypalOrder?.payer?.payer_id || null,
       orderStatus: 'completed',
       payoutScheduledAt: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
     }], { session });

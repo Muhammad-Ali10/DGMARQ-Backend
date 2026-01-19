@@ -15,6 +15,8 @@ import { processScheduledPayouts } from "../services/payout.service.js";
 import { PlatformSettings } from "../models/platform.model.js";
 import { SELLER_STATUS } from "../constants.js";
 import { auditLog } from "../services/audit.service.js";
+import { SeoSettings } from "../models/seoSettings.model.js";
+import { validateMetaTitle, validateMetaDescription } from "../utils/sanitize.js";
 
 // Approves a pending seller application and activates their account
 const approveSeller = asyncHandler(async (req, res) => {
@@ -862,6 +864,83 @@ const updateAutoApproveSetting = asyncHandler(async (req, res) => {
   );
 });
 
+/**
+ * Get home page SEO settings (admin only)
+ */
+const getHomePageSEO = asyncHandler(async (req, res) => {
+  const seoSettings = await SeoSettings.findOne({ page: 'home' });
+
+  if (!seoSettings) {
+    // Return default values if not set
+    return res.status(200).json(
+      new ApiResponse(200, {
+        page: 'home',
+        metaTitle: '',
+        metaDescription: '',
+        lastUpdated: null,
+      }, "Home page SEO settings retrieved successfully")
+    );
+  }
+
+  return res.status(200).json(
+    new ApiResponse(200, {
+      page: seoSettings.page,
+      metaTitle: seoSettings.metaTitle,
+      metaDescription: seoSettings.metaDescription,
+      lastUpdated: seoSettings.updatedAt,
+    }, "Home page SEO settings retrieved successfully")
+  );
+});
+
+/**
+ * Update home page SEO settings (admin only)
+ */
+const updateHomePageSEO = asyncHandler(async (req, res) => {
+  const adminId = req.user._id;
+  const { metaTitle, metaDescription } = req.body;
+
+  if (!metaTitle || !metaDescription) {
+    throw new ApiError(400, "Meta title and meta description are required");
+  }
+
+  // Validate meta title
+  const metaTitleValidation = validateMetaTitle(metaTitle);
+  if (!metaTitleValidation.valid) {
+    throw new ApiError(400, metaTitleValidation.error);
+  }
+
+  // Validate meta description
+  const metaDescriptionValidation = validateMetaDescription(metaDescription);
+  if (!metaDescriptionValidation.valid) {
+    throw new ApiError(400, metaDescriptionValidation.error);
+  }
+
+  // Upsert SEO settings
+  const seoSettings = await SeoSettings.findOneAndUpdate(
+    { page: 'home' },
+    {
+      page: 'home',
+      metaTitle: metaTitleValidation.value,
+      metaDescription: metaDescriptionValidation.value,
+      updatedBy: adminId,
+    },
+    { upsert: true, new: true }
+  );
+
+  await auditLog(adminId, "SEO_SETTINGS_UPDATED", "Home page SEO settings updated", {
+    page: 'home',
+  });
+
+  return res.status(200).json(
+    new ApiResponse(200, {
+      page: seoSettings.page,
+      metaTitle: seoSettings.metaTitle,
+      metaDescription: seoSettings.metaDescription,
+      lastUpdated: seoSettings.updatedAt,
+    }, "Home page SEO settings updated successfully")
+  );
+});
+
 export {
   approveSeller,
   rejectSeller,
@@ -884,5 +963,7 @@ export {
   updateCommissionRate,
   getAutoApproveSetting,
   updateAutoApproveSetting,
+  getHomePageSEO,
+  updateHomePageSEO,
 };
 

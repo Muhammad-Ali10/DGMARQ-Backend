@@ -193,6 +193,8 @@ import paypalOrdersRouter from "./routes/paypalOrders.route.js";
 import trendingOfferRouter from "./routes/trendingoffer.route.js";
 import upcomingReleaseRouter from "./routes/upcomingrelease.route.js";
 import upcomingGamesRouter from "./routes/upcominggames.route.js";
+import seoRouter from "./routes/seo.route.js";
+import walletRouter from "./routes/wallet.route.js";
 
 app.use("/api/v1/user", userRouter);
 app.use("/api/v1/seller", sellerRouter);
@@ -232,6 +234,8 @@ app.use("/api/v1/paypal", paypalOrdersRouter);
 app.use("/api/v1/trending-offer", trendingOfferRouter);
 app.use("/api/v1/upcoming-release", upcomingReleaseRouter);
 app.use("/api/v1/upcoming-games", upcomingGamesRouter);
+app.use("/api/v1/seo", seoRouter);
+app.use("/api/v1/wallet", walletRouter);
 
 app.use(errorHandler);
 
