@@ -1,49 +1,63 @@
-/**
- * Email templates for the marketplace
- */
-
-export const licenseKeyEmailTemplate = (order, keys, user) => {
-  const keysList = keys.map((key, index) => {
-    // FIX: Handle populated productId (object) or direct ObjectId
-    const product = order.items[index]?.productId;
-    const productName = product?.name || 
-                       (typeof product === 'object' && product?.name) || 
-                       'Product';
-    const isAccount = product?.productType === 'ACCOUNT_BASED' || 
-                     (typeof product === 'object' && product?.productType === 'ACCOUNT_BASED');
+// Purpose: Generates HTML email template for license key delivery
+export const licenseKeyEmailTemplate = (order, keys, user, keyToItemMap = null) => {
+  let keyIndex = 0;
+  const keysList = [];
+  
+  for (const item of order.items) {
+    const itemKeyCount = item.assignedKeyIds?.length || 0;
+    const itemKeys = keys.slice(keyIndex, keyIndex + itemKeyCount);
     
-    // Parse account credentials if it's an account product
-    let keyDisplay = key;
-    let accountDetails = null;
-    if (isAccount && typeof key === 'string') {
-      try {
-        accountDetails = JSON.parse(key);
-      } catch (e) {
-        // If parsing fails, display as string
-        accountDetails = null;
+    let productName = 'Product name unavailable';
+    let isAccount = false;
+    
+    if (item.productId) {
+      if (typeof item.productId === 'object' && item.productId.name) {
+        productName = item.productId.name;
+        isAccount = item.productId.productType === 'ACCOUNT_BASED';
+      } else if (item.productId && typeof item.productId === 'object' && item.productId._id) {
+        productName = item.productId.name || 'Product name unavailable';
+        isAccount = item.productId.productType === 'ACCOUNT_BASED';
+      } else {
+        productName = 'Product name unavailable';
       }
     }
     
-    return `
-      <div style="margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 5px;">
-        <h3 style="margin: 0 0 10px 0; color: #333;">${productName}</h3>
-        ${isAccount && accountDetails ? `
-          <p style="margin: 5px 0; font-size: 14px; color: #666;">Account Credentials:</p>
-          <div style="padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 3px;">
-            ${accountDetails.email ? `<p style="margin: 5px 0;"><strong>Email:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px;">${accountDetails.email}</code></p>` : ''}
-            ${accountDetails.username ? `<p style="margin: 5px 0;"><strong>Username:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px;">${accountDetails.username}</code></p>` : ''}
-            ${accountDetails.password ? `<p style="margin: 5px 0;"><strong>Password:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px; font-weight: bold; color: #2c3e50;">${accountDetails.password}</code></p>` : ''}
-            ${accountDetails.emailPassword ? `<p style="margin: 5px 0;"><strong>Email Password:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px; font-weight: bold; color: #2c3e50;">${accountDetails.emailPassword}</code></p>` : ''}
-          </div>
-        ` : `
-          <p style="margin: 5px 0; font-size: 14px; color: #666;">License Key:</p>
-          <code style="display: block; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 3px; font-size: 16px; font-weight: bold; color: #2c3e50; word-break: break-all;">
-            ${keyDisplay}
-          </code>
-        `}
-      </div>
-    `;
-  }).join('');
+    for (const key of itemKeys) {
+      let keyDisplay = key;
+      let accountDetails = null;
+      if (isAccount && typeof key === 'string') {
+        try {
+          accountDetails = JSON.parse(key);
+        } catch (e) {
+          accountDetails = null;
+        }
+      }
+      
+      keysList.push(`
+        <div style="margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 5px;">
+          <h3 style="margin: 0 0 10px 0; color: #333;">${productName}</h3>
+          ${isAccount && accountDetails ? `
+            <p style="margin: 5px 0; font-size: 14px; color: #666;">Account Credentials:</p>
+            <div style="padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 3px;">
+              ${accountDetails.email ? `<p style="margin: 5px 0;"><strong>Email:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px;">${accountDetails.email}</code></p>` : ''}
+              ${accountDetails.username ? `<p style="margin: 5px 0;"><strong>Username:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px;">${accountDetails.username}</code></p>` : ''}
+              ${accountDetails.password ? `<p style="margin: 5px 0;"><strong>Password:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px; font-weight: bold; color: #2c3e50;">${accountDetails.password}</code></p>` : ''}
+              ${accountDetails.emailPassword ? `<p style="margin: 5px 0;"><strong>Email Password:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px; font-weight: bold; color: #2c3e50;">${accountDetails.emailPassword}</code></p>` : ''}
+            </div>
+          ` : `
+            <p style="margin: 5px 0; font-size: 14px; color: #666;">License Key:</p>
+            <code style="display: block; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 3px; font-size: 16px; font-weight: bold; color: #2c3e50; word-break: break-all;">
+              ${keyDisplay}
+            </code>
+          `}
+        </div>
+      `);
+    }
+    
+    keyIndex += itemKeyCount;
+  }
+  
+  const keysListHtml = keysList.join('');
 
   return `
     <!DOCTYPE html>
@@ -67,7 +81,7 @@ export const licenseKeyEmailTemplate = (order, keys, user) => {
           <p>Hello ${user.name},</p>
           <p>Thank you for your purchase! Your order #${order._id} has been completed.</p>
           <p>Here are your order details:</p>
-          ${keysList}
+          ${keysListHtml}
           <p style="margin-top: 30px; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 3px;">
             <strong>Important:</strong> Please keep these keys secure and do not share them with anyone.
           </p>
@@ -82,12 +96,21 @@ export const licenseKeyEmailTemplate = (order, keys, user) => {
   `;
 };
 
+// Purpose: Generates HTML email template for order confirmation
 export const orderConfirmationEmailTemplate = (order, user) => {
-  // FIX: Handle populated productId (object) or direct ObjectId
-  const itemsList = order.items.map(item => {
-    const productName = item.productId?.name || 
-                       (typeof item.productId === 'object' && item.productId?.name) || 
-                       'Product';
+  const itemsList = order.items.map((item, index) => {
+    let productName = 'Product name unavailable';
+    
+    if (item.productId) {
+      if (typeof item.productId === 'object' && item.productId.name) {
+        productName = item.productId.name;
+      } else if (typeof item.productId === 'object' && item.productId._id) {
+        productName = 'Product name unavailable';
+      } else {
+        productName = 'Product name unavailable';
+      }
+    }
+    
     const qty = item.qty || 0;
     const unitPrice = item.unitPrice || 0;
     const lineTotal = item.lineTotal || (unitPrice * qty);
@@ -138,9 +161,10 @@ export const orderConfirmationEmailTemplate = (order, user) => {
             </tbody>
           </table>
           <div style="text-align: right; margin-top: 20px;">
-            <p><strong>Subtotal:</strong> $${order.subtotal.toFixed(2)}</p>
+            <p><strong>Subtotal:</strong> $${(order.subtotal ?? order.totalAmount).toFixed(2)}</p>
             ${order.discount > 0 ? `<p><strong>Discount:</strong> -$${order.discount.toFixed(2)}</p>` : ''}
-            <p class="total">Total: $${order.totalAmount.toFixed(2)}</p>
+            ${(order.buyerHandlingFee ?? order.handlingFee ?? 0) > 0 ? `<p><strong>Handling fee:</strong> $${(order.buyerHandlingFee ?? order.handlingFee ?? 0).toFixed(2)}</p>` : ''}
+            <p class="total">Total: $${(order.grandTotal ?? order.totalAmount).toFixed(2)}</p>
           </div>
           <p>Your license keys will be sent to this email address shortly.</p>
         </div>
@@ -150,6 +174,7 @@ export const orderConfirmationEmailTemplate = (order, user) => {
   `;
 };
 
+// Purpose: Generates HTML email template for seller payout notification
 export const payoutNotificationEmailTemplate = (payout, seller) => {
   return `
     <!DOCTYPE html>

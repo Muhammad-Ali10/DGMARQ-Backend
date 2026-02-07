@@ -32,7 +32,7 @@ const transactionSchema = new Schema(
     },
     currency: {
       type: String,
-      default: "EUR",
+      default: "USD",
     },
     status: {
       type: String,
@@ -42,7 +42,7 @@ const transactionSchema = new Schema(
     },
     paymentMethod: {
       type: String,
-      enum: ['PayPal', 'stripe', 'bank_transfer'],
+      enum: ['PayPal', 'Card', 'Wallet', 'Wallet+Card', 'stripe', 'bank_transfer'],
       default: 'PayPal',
     },
     paypalTransactionId: String,
@@ -60,5 +60,6 @@ transactionSchema.index({ orderId: 1 });
 transactionSchema.index({ payoutId: 1 });
 transactionSchema.index({ status: 1, createdAt: -1 });
 
+// Purpose: Represents financial transactions including payments, payouts, refunds, and fees
 export const Transaction = mongoose.model("Transaction", transactionSchema);
 

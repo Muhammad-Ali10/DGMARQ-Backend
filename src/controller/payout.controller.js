@@ -4,13 +4,12 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { getSellerPayouts, getSellerBalance } from "../services/payout.service.js";
 import { Payout } from "../models/payout.model.js";
 import { Seller } from "../models/seller.model.js";
-import { SellerPayoutAccount } from "../models/sellerPayoutAccount.model.js";
 import mongoose from "mongoose";
 
-// Retrieves seller's payout history with pagination
+// Purpose: Retrieves seller's payout history with pagination
 const getMyPayouts = asyncHandler(async (req, res) => {
   const sellerId = req.user.seller?._id || req.user._id;
-  const { page = 1, limit = 20 } = req.query;
+  const { page = 1, limit = 10 } = req.query;
 
   const { Seller } = await import("../models/seller.model.js");
   const seller = await Seller.findOne({ userId: req.user._id });
@@ -26,7 +25,7 @@ const getMyPayouts = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves detailed information for a single payout
+// Purpose: Retrieves detailed information for a single payout
 const getPayoutDetails = asyncHandler(async (req, res) => {
   const { payoutId } = req.params;
   const userId = req.user._id;
@@ -58,7 +57,7 @@ const getPayoutDetails = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves seller's current payout balance
+// Purpose: Retrieves seller's current payout balance
 const getPayoutBalance = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
@@ -76,70 +75,15 @@ const getPayoutBalance = asyncHandler(async (req, res) => {
   );
 });
 
-// Creates a manual payout request for the seller
+// Purpose: Creates a manual payout request for the seller (DISABLED - seller-initiated payouts are not allowed)
 const requestPayout = asyncHandler(async (req, res) => {
-  const userId = req.user._id;
-  const { requestedAmount, reason } = req.body;
-
-  if (!requestedAmount || requestedAmount <= 0) {
-    throw new ApiError(400, "Valid requested amount is required");
-  }
-
-  const seller = await Seller.findOne({ userId });
-
-  if (!seller) {
-    throw new ApiError(404, "Seller account not found");
-  }
-
-  if (requestedAmount < seller.minPayoutAmount) {
-    throw new ApiError(400, `Minimum payout amount is $${seller.minPayoutAmount}`);
-  }
-
-  const balance = await getSellerBalance(seller._id);
-
-  if (requestedAmount > balance.available) {
-    const availableAmount = balance.available.toFixed(2);
-    const daysUntilAvailable = balance.pending?.daysUntilAvailable || 0;
-    let errorMessage = `Insufficient available balance. Available: $${availableAmount}`;
-    
-    if (daysUntilAvailable > 0) {
-      errorMessage += `. Your pending balance will be available in ${daysUntilAvailable} day${daysUntilAvailable > 1 ? 's' : ''}.`;
-    } else if (balance.pending?.amount > 0) {
-      errorMessage += `. You have $${balance.pending.amount.toFixed(2)} on hold.`;
-    }
-    
-    throw new ApiError(400, errorMessage);
-  }
-
-  const payoutAccount = await SellerPayoutAccount.findOne({
-    sellerId: seller._id,
-    status: "verified",
-  });
-
-  if (!payoutAccount) {
-    throw new ApiError(400, "No verified payout account found. Please link a payout account first.");
-  }
-
-  const payoutRequest = await Payout.create({
-    sellerId: seller._id,
-    requestType: 'manual',
-    grossAmount: requestedAmount,
-    commissionAmount: 0,
-    netAmount: requestedAmount,
-    status: "requested",
-    requestReason: reason,
-    requestedAt: new Date(),
-  });
-
-  return res.status(201).json(
-    new ApiResponse(201, payoutRequest, "Payout request created successfully")
-  );
+  throw new ApiError(403, "Seller-initiated payouts are disabled.");
 });
 
-// Retrieves payout requests for the seller with optional status filtering
+// Purpose: Retrieves payout requests for the seller with optional status filtering
 const getPayoutRequests = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const { page = 1, limit = 20, status } = req.query;
+  const { page = 1, limit = 10, status } = req.query;
 
   const seller = await Seller.findOne({ userId });
 
@@ -149,7 +93,7 @@ const getPayoutRequests = asyncHandler(async (req, res) => {
 
   const match = { 
     sellerId: seller._id,
-    requestType: 'manual' // Only manual payout requests
+    requestType: 'manual'
   };
   if (status) {
     match.status = status;
@@ -177,30 +121,12 @@ const getPayoutRequests = asyncHandler(async (req, res) => {
   );
 });
 
-// Updates the minimum payout threshold for the seller
+// Purpose: Updates the minimum payout threshold for the seller (DISABLED - payout settings managed by platform)
 const updateMinimumPayoutThreshold = asyncHandler(async (req, res) => {
-  const userId = req.user._id;
-  const { minPayoutAmount } = req.body;
-
-  if (!minPayoutAmount || minPayoutAmount < 1) {
-    throw new ApiError(400, "Minimum payout amount must be at least $1");
-  }
-
-  const seller = await Seller.findOne({ userId });
-
-  if (!seller) {
-    throw new ApiError(404, "Seller account not found");
-  }
-
-  seller.minPayoutAmount = minPayoutAmount;
-  await seller.save();
-
-  return res.status(200).json(
-    new ApiResponse(200, seller, "Minimum payout threshold updated successfully")
-  );
+  throw new ApiError(403, "Seller-initiated payouts are disabled.");
 });
 
-// Generates payout reports with optional date filtering and CSV export
+// Purpose: Generates payout reports with optional date filtering and CSV export
 const getPayoutReports = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { startDate, endDate, format = "json" } = req.query;

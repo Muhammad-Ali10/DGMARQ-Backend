@@ -1,17 +1,15 @@
 import { Queue, Worker } from 'bullmq';
 import mongoose from 'mongoose';
 import { connection } from './payout.job.js';
-import { sendLicenseKeyEmail, sendOrderConfirmation, sendPayoutNotification } from '../services/email.service.js';
+import { sendLicenseKeyEmail, sendLicenseKeyEmailToGuest, sendOrderConfirmation, sendPayoutNotification } from '../services/email.service.js';
 import { Order } from '../models/order.model.js';
 import { User } from '../models/user.model.js';
 import { Payout } from '../models/payout.model.js';
 import { Seller } from '../models/seller.model.js';
 import { logger } from '../utils/logger.js';
 
-// Check if Redis is available
 const isRedisAvailable = !!process.env.REDIS_URL;
 
-// Create email queue (only if Redis is available)
 let emailQueue = null;
 let emailWorker = null;
 
@@ -19,7 +17,6 @@ if (isRedisAvailable) {
   try {
     emailQueue = new Queue('email-processing', { connection });
     
-    // Create email worker
     emailWorker = new Worker(
       'email-processing',
       async (job) => {
@@ -35,11 +32,10 @@ if (isRedisAvailable) {
       },
       { 
         connection,
-        concurrency: 5, // Process 5 emails concurrently
+        concurrency: 5,
       }
     );
 
-    // Handle job events
     emailWorker.on('completed', (job) => {
       logger.info(`Email job ${job.id} completed: ${job.data.type}`);
     });
@@ -57,13 +53,10 @@ if (isRedisAvailable) {
   logger.warn('Redis not configured - emails will be sent directly (synchronously)');
 }
 
-/**
- * Process email job (shared logic for queue and direct sending)
- */
+// Purpose: Processes email jobs by type and sends appropriate emails
 const processEmailJob = async (type, data) => {
   switch (type) {
     case 'license_key':
-      // FIX: Validate ObjectIds before querying
       if (!data.orderId || !mongoose.Types.ObjectId.isValid(data.orderId)) {
         throw new Error(`Invalid orderId: ${data.orderId}`);
       }
@@ -84,8 +77,24 @@ const processEmailJob = async (type, data) => {
       await sendLicenseKeyEmail(order, user);
       break;
       
+    case 'license_key_guest':
+      if (!data.orderId || !mongoose.Types.ObjectId.isValid(data.orderId)) {
+        throw new Error(`Invalid orderId: ${data.orderId}`);
+      }
+      if (!data.guestEmail || typeof data.guestEmail !== 'string' || !data.guestEmail.trim()) {
+        throw new Error(`Invalid guestEmail: ${data.guestEmail}`);
+      }
+      const guestOrder = await Order.findById(data.orderId).populate('items.productId', 'name images productType');
+      if (!guestOrder) {
+        throw new Error(`Order not found: ${data.orderId}`);
+      }
+      if (!guestOrder.isGuest) {
+        throw new Error(`Order is not a guest order: ${data.orderId}`);
+      }
+      await sendLicenseKeyEmailToGuest(guestOrder, data.guestEmail.trim().toLowerCase());
+      break;
+
     case 'order_confirmation':
-      // FIX: Validate ObjectIds before querying
       if (!data.orderId || !mongoose.Types.ObjectId.isValid(data.orderId)) {
         throw new Error(`Invalid orderId: ${data.orderId}`);
       }
@@ -134,11 +143,8 @@ const processEmailJob = async (type, data) => {
   }
 };
 
-/**
- * Queue email job (with fallback to direct sending if Redis unavailable)
- */
+// Purpose: Queues email job or sends directly if Redis unavailable
 export const queueEmail = async (type, data) => {
-  // FIX: If Redis is not available, send email directly
   if (!isRedisAvailable || !emailQueue) {
     logger.info(`Sending email directly (Redis not available): ${type}`);
     try {
@@ -150,7 +156,6 @@ export const queueEmail = async (type, data) => {
     }
   }
 
-  // Use queue if Redis is available
   try {
     const job = await emailQueue.add(type, { type, data }, {
       attempts: 3,
@@ -159,18 +164,17 @@ export const queueEmail = async (type, data) => {
         delay: 2000,
       },
       removeOnComplete: {
-        age: 24 * 3600, // Keep completed jobs for 24 hours
+        age: 24 * 3600,
         count: 1000,
       },
       removeOnFail: {
-        age: 7 * 24 * 3600, // Keep failed jobs for 7 days
+        age: 7 * 24 * 3600,
       },
     });
     logger.debug(`Email queued: ${type}`, { jobId: job.id });
     return job;
   } catch (error) {
     logger.error(`Failed to queue email (${type}), trying direct send:`, error);
-    // Fallback to direct sending if queue fails
     try {
       await processEmailJob(type, data);
       return { success: true, sent: true, method: 'direct-fallback' };

@@ -5,9 +5,14 @@ import { ApiError } from '../utils/ApiError.js';
 import { logger } from '../utils/logger.js';
 import mongoose from 'mongoose';
 
-export const assignKeyToOrder = async (productId, orderId) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
+// Purpose: Assigns an available license key to an order for a specific product
+export const assignKeyToOrder = async (productId, orderId, existingSession = null) => {
+  const useExistingSession = existingSession !== null;
+  const session = existingSession || await mongoose.startSession();
+  
+  if (!useExistingSession) {
+    session.startTransaction();
+  }
 
   try {
     const licenseKeyDoc = await LicenseKey.findOne({
@@ -41,10 +46,14 @@ export const assignKeyToOrder = async (productId, orderId) => {
       { session }
     );
 
-    await session.commitTransaction();
+    if (!useExistingSession) {
+      await session.commitTransaction();
+    }
     
-    const { checkStockAfterAssignment } = await import('./stockNotification.service.js');
-    await checkStockAfterAssignment(productId);
+    if (!useExistingSession) {
+      const { checkStockAfterAssignment } = await import('./stockNotification.service.js');
+      await checkStockAfterAssignment(productId);
+    }
     
     return {
       _id: availableKey._id,
@@ -55,13 +64,18 @@ export const assignKeyToOrder = async (productId, orderId) => {
       assignedAt: availableKey.assignedAt,
     };
   } catch (error) {
-    await session.abortTransaction();
+    if (!useExistingSession && session.inTransaction()) {
+      await session.abortTransaction();
+    }
     throw error;
   } finally {
-    session.endSession();
+    if (!useExistingSession && session && !session.hasEnded) {
+      session.endSession();
+    }
   }
 };
 
+// Purpose: Bulk uploads license keys for a product with duplicate detection
 export const bulkUploadKeys = async (productId, keys, sellerId) => {
   const product = await Product.findById(productId);
   if (!product) {
@@ -188,6 +202,7 @@ export const bulkUploadKeys = async (productId, keys, sellerId) => {
   }
 };
 
+// Purpose: Retrieves and decrypts a license key by its ID
 export const getDecryptedKey = async (keyId) => {
   const licenseKeyDoc = await LicenseKey.findOne({
     'keys._id': new mongoose.Types.ObjectId(keyId),
@@ -202,20 +217,16 @@ export const getDecryptedKey = async (keyId) => {
     throw new ApiError(404, 'License key not found');
   }
 
-  // FIX: Check if keyData exists
   if (!key.keyData) {
     logger.error(`Key ${keyId} has no keyData`);
     throw new ApiError(500, 'License key data is missing');
   }
 
-  // FIX: Check if keyData is already decrypted (plain text)
-  // If it doesn't contain ':' separators, it might be plain text
   if (typeof key.keyData === 'string' && !key.keyData.includes(':')) {
     logger.warn(`Key ${keyId} appears to be plain text, returning as-is`);
     return key.keyData;
   }
 
-  // FIX: Log key data format for debugging (first 50 chars only for security)
   const keyDataPreview = typeof key.keyData === 'string' 
     ? key.keyData.substring(0, 50) + (key.keyData.length > 50 ? '...' : '')
     : 'non-string';
@@ -232,16 +243,15 @@ export const getDecryptedKey = async (keyId) => {
         : 'Unknown format',
     });
     
-    // FIX: Check if it's an encryption key mismatch error
     if (error.message.includes('encryption key may have changed')) {
       throw new ApiError(500, 'Failed to decrypt key: The encryption key has changed. This key was encrypted with a different key. Please contact support.');
     }
     
-    // FIX: Provide more detailed error message
     throw new ApiError(500, `Failed to decrypt key: ${error.message}`);
   }
 };
 
+// Purpose: Synchronizes product stock count with available license keys
 export const syncProductStock = async (productId) => {
   const licenseKeyDoc = await LicenseKey.findOne({
     productId: new mongoose.Types.ObjectId(productId),
@@ -265,12 +275,7 @@ export const syncProductStock = async (productId) => {
   return availableCount;
 };
 
-/**
- * Check if product has enough available keys for the requested quantity
- * @param {string|ObjectId} productId - Product ID
- * @param {number} requestedQty - Requested quantity
- * @returns {Promise<{available: boolean, availableCount: number, message?: string}>}
- */
+// Purpose: Checks if a product has enough available keys for the requested quantity
 export const checkKeyAvailability = async (productId, requestedQty = 1) => {
   const licenseKeyDoc = await LicenseKey.findOne({
     productId: new mongoose.Types.ObjectId(productId),
@@ -302,6 +307,7 @@ export const checkKeyAvailability = async (productId, requestedQty = 1) => {
   };
 };
 
+// Purpose: Validates key format based on platform-specific patterns
 export const validateKeyFormat = (keyData, keyType = 'other') => {
   if (!keyData || typeof keyData !== 'string') {
     return { valid: false, error: 'Key must be a non-empty string' };
@@ -333,6 +339,7 @@ export const validateKeyFormat = (keyData, keyType = 'other') => {
   return { valid: true };
 };
 
+// Purpose: Retrieves paginated list of keys for a product with seller verification
 export const getProductKeys = async (productId, sellerId, page = 1, limit = 50) => {
   const product = await Product.findById(productId);
   if (!product) {

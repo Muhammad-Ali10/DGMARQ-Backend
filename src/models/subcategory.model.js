@@ -16,4 +16,5 @@ const subCategorySchema = new Schema(
 subCategorySchema.index({ parentCategory: 1, slug: 1 }, { unique: true });
 
 subCategorySchema.plugin(mongooseAggregatePaginate);
+// Purpose: Represents a subcategory nested under a parent category
 export const SubCategory = mongoose.model("SubCategory", subCategorySchema);

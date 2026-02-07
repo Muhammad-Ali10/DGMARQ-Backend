@@ -1,14 +1,3 @@
-/**
- * Script to fix orderNumber index issue
- * 
- * This script:
- * 1. Drops the existing non-sparse orderNumber_1 index
- * 2. Creates a new sparse index that allows multiple null values
- * 3. Optionally generates orderNumbers for existing orders with null orderNumber
- * 
- * Run with: node scripts/fix-order-number-index.js
- */
-
 import mongoose from 'mongoose';
 import { Order } from '../src/models/order.model.js';
 import dotenv from 'dotenv';
@@ -18,7 +7,6 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load environment variables
 const envPath = join(__dirname, '../.env');
 const result = dotenv.config({ path: envPath });
 
@@ -29,6 +17,7 @@ if (result.error) {
   console.log(`✅ Loaded environment variables from ${envPath}`);
 }
 
+// Purpose: Generate a random 8-character alphanumeric order number
 const generateOrderNumber = () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let orderNumber = '';
@@ -38,9 +27,9 @@ const generateOrderNumber = () => {
   return orderNumber;
 };
 
+// Purpose: Fix orderNumber index by creating sparse index and backfilling null values
 const fixOrderNumberIndex = async () => {
   try {
-    // Check if MONGODB_URI exists, otherwise use MONGO_URI + DB_Name
     const mongoUri = process.env.MONGODB_URI || 
                      (process.env.MONGO_URI && process.env.DB_Name 
                       ? `${process.env.MONGO_URI}/${process.env.DB_Name}` 
@@ -60,17 +49,14 @@ const fixOrderNumberIndex = async () => {
       throw new Error('MongoDB connection string not found');
     }
     
-    console.log(`Using MongoDB URI: ${mongoUri.replace(/\/\/.*@/, '//***:***@')}`); // Hide credentials in log
+    console.log(`Using MongoDB URI: ${mongoUri.replace(/\/\/.*@/, '//***:***@')}`);
     
     console.log('Connecting to MongoDB...');
-    // Connect to MongoDB
     await mongoose.connect(mongoUri);
     console.log('✅ Connected to MongoDB');
 
-    // Get the collection
     const collection = mongoose.connection.db.collection('orders');
 
-    // Drop existing orderNumber_1 index if it exists
     try {
       await collection.dropIndex('orderNumber_1');
       console.log('✅ Dropped existing orderNumber_1 index');
@@ -82,15 +68,12 @@ const fixOrderNumberIndex = async () => {
       }
     }
 
-    // Create new sparse index
     await collection.createIndex({ orderNumber: 1 }, { unique: true, sparse: true });
     console.log('✅ Created new sparse orderNumber index');
 
-    // Find orders with null orderNumber
     const ordersWithoutNumber = await Order.find({ orderNumber: null }).lean();
     console.log(`Found ${ordersWithoutNumber.length} orders without orderNumber`);
 
-    // Generate orderNumbers for existing orders
     if (ordersWithoutNumber.length > 0) {
       console.log('Generating orderNumbers for existing orders...');
       for (const order of ordersWithoutNumber) {

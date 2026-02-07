@@ -10,14 +10,14 @@ import {
 } from "../controller/upcominggames.controller.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
+// Purpose: Upcoming games routes for public viewing and admin configuration
+
 const router = express.Router();
 
 router.use(apiRateLimiter);
 
-// Public route
 router.get("/", getUpcomingGames);
 
-// Admin routes
 router.get("/admin", verifyJWT, authorizeRoles("admin"), getUpcomingGamesConfig);
 router.post("/add", verifyJWT, authorizeRoles("admin"), addProducts);
 router.delete("/remove", verifyJWT, authorizeRoles("admin"), removeProducts);

@@ -2,13 +2,12 @@ import paypal from '@paypal/checkout-server-sdk';
 import { randomUUID } from 'crypto';
 import { logger } from '../utils/logger.js';
 
-// Configure PayPal environment
+// Purpose: Configures and returns the PayPal environment based on settings
 const environment = () => {
   const clientId = process.env.PAYPAL_CLIENT_ID;
   const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
   const paypalEnv = process.env.PAYPAL_ENV || 'sandbox'; 
 
-  // FIX: Validate PayPal credentials with detailed error messages
   if (!clientId || clientId.trim() === '' || clientId === 'your_paypal_client_id') {
     throw new Error('PayPal CLIENT_ID is missing or not configured. Please set PAYPAL_CLIENT_ID in your .env file.');
   }
@@ -17,7 +16,6 @@ const environment = () => {
     throw new Error('PayPal CLIENT_SECRET is missing or not configured. Please set PAYPAL_CLIENT_SECRET in your .env file.');
   }
 
-  // Log which environment is being used for debugging
   const isProduction = paypalEnv.toLowerCase() === 'production';
   logger.info(`PayPal Environment: ${isProduction ? 'PRODUCTION' : 'SANDBOX'}`);
   logger.debug(`PayPal Client ID: ${clientId.substring(0, 10)}...${clientId.substring(clientId.length - 4)}`);
@@ -28,31 +26,17 @@ const environment = () => {
   return new paypal.core.SandboxEnvironment(clientId, clientSecret);
 };
 
+// Purpose: Creates and returns a PayPal HTTP client instance
 const client = () => {
   return new paypal.core.PayPalHttpClient(environment());
 };
 
-/**
- * Creates a PayPal order for payment processing
- * 
- * IMPORTANT: This function uses ADMIN PayPal credentials only.
- * All customer payments are captured into the ADMIN PayPal account.
- * 
- * ESCROW FLOW:
- * - Customer payments → Admin PayPal account (via this function)
- * - Seller payouts → Seller PayPal accounts (via createPayPalPayout, after 15 days)
- * 
- * No seller PayPal email or merchant_id is used during checkout.
- * The purchase_units intentionally excludes 'payee' field to ensure
- * payments go to the admin account associated with PAYPAL_CLIENT_ID.
- */
+// Purpose: Creates a PayPal order for payment processing using admin credentials
 export const createPayPalOrder = async (orderData) => {
   try {
-    // Verify we're using admin credentials (not seller credentials)
     const clientId = process.env.PAYPAL_CLIENT_ID;
     const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
     
-    // FIX: Enhanced validation with helpful error messages
     if (!clientId || clientId.trim() === '' || clientId === 'your_paypal_client_id') {
       throw new Error('PayPal CLIENT_ID is missing or not configured. Please set PAYPAL_CLIENT_ID in your .env file.');
     }
@@ -61,45 +45,37 @@ export const createPayPalOrder = async (orderData) => {
       throw new Error('PayPal CLIENT_SECRET is missing or not configured. Please set PAYPAL_CLIENT_SECRET in your .env file.');
     }
 
-    // SECURITY: Hard-enforce USD currency - never default to EUR
     const currencyCode = orderData.currency && orderData.currency === 'USD' ? 'USD' : 'USD';
     if (orderData.currency && orderData.currency !== 'USD') {
       throw new Error(`Currency must be USD. Received: ${orderData.currency}`);
     }
     
-    // Calculate item_total: SUM(items.unit_amount.value × items.quantity)
-    // Use integer math (cents) to avoid floating-point errors
     let itemTotalCents = 0;
     const items = orderData.items.map(item => {
-      // Ensure unit_amount is a number
       const unitAmount = typeof item.unit_amount === 'number' ? item.unit_amount : parseFloat(item.unit_amount);
       const quantity = typeof item.quantity === 'number' ? item.quantity : parseFloat(item.quantity);
       
-      // Calculate in cents to avoid floating-point errors
       const unitAmountCents = Math.round(unitAmount * 100);
       const lineTotalCents = unitAmountCents * quantity;
       itemTotalCents += lineTotalCents;
       
       return {
         name: item.name,
-        quantity: quantity.toString(), // PayPal requires quantity as string
+        quantity: quantity.toString(),
         unit_amount: {
           currency_code: currencyCode,
-          value: unitAmount.toFixed(2), // Fixed to 2 decimal places
+          value: unitAmount.toFixed(2),
         },
       };
     });
     
-    // Convert item_total from cents back to decimal
     const itemTotal = (itemTotalCents / 100).toFixed(2);
     
-    // Get optional breakdown components (if provided)
     const taxTotal = orderData.tax_total ? parseFloat(orderData.tax_total).toFixed(2) : '0.00';
     const shipping = orderData.shipping ? parseFloat(orderData.shipping).toFixed(2) : '0.00';
     const handling = orderData.handling ? parseFloat(orderData.handling).toFixed(2) : '0.00';
     const discount = orderData.discount ? parseFloat(orderData.discount).toFixed(2) : '0.00';
     
-    // Calculate final amount: item_total + tax_total + shipping + handling - discount
     const finalAmountCents = 
       itemTotalCents + 
       Math.round(parseFloat(taxTotal) * 100) + 
@@ -109,7 +85,6 @@ export const createPayPalOrder = async (orderData) => {
     
     const finalAmount = (finalAmountCents / 100).toFixed(2);
     
-    // Build breakdown object
     const breakdown = {
       item_total: {
         currency_code: currencyCode,
@@ -117,7 +92,6 @@ export const createPayPalOrder = async (orderData) => {
       },
     };
     
-    // Only include breakdown fields if they have non-zero values
     if (parseFloat(taxTotal) > 0) {
       breakdown.tax_total = {
         currency_code: currencyCode,
@@ -152,8 +126,6 @@ export const createPayPalOrder = async (orderData) => {
       intent: 'CAPTURE',
       purchase_units: [
         {
-          // NOTE: No 'payee' field is set - payments go to admin account
-          // NOTE: No 'merchant_id' field is set - payments go to admin account
           amount: {
             currency_code: currencyCode,
             value: finalAmount,
@@ -173,7 +145,6 @@ export const createPayPalOrder = async (orderData) => {
 
     const order = await client().execute(request);
     
-    // Log order creation for audit (payment goes to admin account)
     logger.info(`PayPal order created: ${order.result.id} - Payment will be captured to ADMIN account`);
     
     return {
@@ -185,7 +156,6 @@ export const createPayPalOrder = async (orderData) => {
   } catch (error) {
     logger.error('PayPal order creation failed', error);
     
-    // FIX: Provide more helpful error messages for common issues
     if (error.message?.includes('invalid_client') || error.message?.includes('Client Authentication failed')) {
       const paypalEnv = process.env.PAYPAL_ENV || 'sandbox';
       const isProduction = paypalEnv.toLowerCase() === 'production';
@@ -205,14 +175,7 @@ export const createPayPalOrder = async (orderData) => {
   }
 };
 
-/**
- * Captures a PayPal payment for an approved order
- * 
- * IMPORTANT: Payment is captured into the ADMIN PayPal account.
- * The capture uses admin credentials (PAYPAL_CLIENT_ID/PAYPAL_CLIENT_SECRET).
- * 
- * The capture response will show the admin account as the receiver.
- */
+// Purpose: Captures a PayPal payment for an approved order into admin account
 export const capturePayPalPayment = async (orderId) => {
   try {
     const request = new paypal.orders.OrdersCaptureRequest(orderId);
@@ -221,7 +184,6 @@ export const capturePayPalPayment = async (orderId) => {
     const capture = await client().execute(request);
     const captureData = capture.result.purchase_units[0]?.payments?.captures[0];
     
-    // Verify payment receiver is admin account (capture should show admin as receiver)
     const payee = captureData?.payee;
     if (payee) {
       logger.info(`Payment captured - Receiver: ${payee.email || payee.merchant_id || 'Admin Account'}`);
@@ -233,7 +195,6 @@ export const capturePayPalPayment = async (orderId) => {
       captureId: captureData?.id,
       amount: captureData?.amount?.value,
       payerId: capture.result.payer?.payer_id || null,
-      // Include payee info for verification (should be admin account)
       payee: payee || null,
     };
   } catch (error) {
@@ -242,7 +203,7 @@ export const capturePayPalPayment = async (orderId) => {
   }
 };
 
-// Retrieves PayPal order details by order ID
+// Purpose: Retrieves PayPal order details by order ID
 export const getPayPalOrder = async (orderId) => {
   try {
     const request = new paypal.orders.OrdersGetRequest(orderId);
@@ -254,94 +215,114 @@ export const getPayPalOrder = async (orderId) => {
   }
 };
 
-/**
- * Create PayPal Order for Advanced Checkout (CardFields)
- * SECURITY: This function does NOT accept card data - card data is handled by PayPal-hosted CardFields
- * 
- * @param {Object} orderData - Order data with amount, currency, items
- * @returns {Promise<Object>} PayPal order response with orderId
- */
+// Purpose: Creates a PayPal order for advanced checkout using card fields
 export const createPayPalOrderForCheckout = async (orderData) => {
   try {
-    // HARD-ENFORCE USD CURRENCY
     if (orderData.currency && orderData.currency !== 'USD') {
       throw new Error(`Currency must be USD. Received: ${orderData.currency}`);
     }
     
     const currencyCode = 'USD';
-    
-    // Calculate item_total: SUM(items.unit_amount.value × items.quantity)
-    let itemTotalCents = 0;
-    const items = orderData.items.map(item => {
-      const unitAmount = typeof item.unit_amount === 'number' ? item.unit_amount : parseFloat(item.unit_amount);
-      const quantity = typeof item.quantity === 'number' ? item.quantity : parseFloat(item.quantity);
-      
-      const unitAmountCents = Math.round(unitAmount * 100);
-      const lineTotalCents = unitAmountCents * quantity;
-      itemTotalCents += lineTotalCents;
-      
-      return {
-        name: item.name,
-        quantity: quantity.toString(),
-        unit_amount: {
+    let finalAmount;
+    let breakdown;
+    let items;
+
+    // When explicit amount is provided (e.g. cardAmount when wallet is used), create order for that amount only
+    const explicitAmount = orderData.amount != null && typeof orderData.amount === 'number' && orderData.amount > 0
+      ? Number(Number(orderData.amount).toFixed(2))
+      : null;
+
+    if (explicitAmount !== null) {
+      finalAmount = explicitAmount.toFixed(2);
+      breakdown = {
+        item_total: {
           currency_code: currencyCode,
-          value: Number(unitAmount).toFixed(2), // Ensure 2 decimal places
+          value: finalAmount,
         },
       };
-    });
-    
-    const itemTotal = (itemTotalCents / 100).toFixed(2);
-    
-    const taxTotal = orderData.tax_total ? parseFloat(orderData.tax_total).toFixed(2) : '0.00';
-    const shipping = orderData.shipping ? parseFloat(orderData.shipping).toFixed(2) : '0.00';
-    const handling = orderData.handling ? parseFloat(orderData.handling).toFixed(2) : '0.00';
-    const discount = orderData.discount ? parseFloat(orderData.discount).toFixed(2) : '0.00';
-    
-    const finalAmountCents = 
-      itemTotalCents + 
-      Math.round(parseFloat(taxTotal) * 100) + 
-      Math.round(parseFloat(shipping) * 100) + 
-      Math.round(parseFloat(handling) * 100) - 
-      Math.round(parseFloat(discount) * 100);
-    
-    const finalAmount = Number(finalAmountCents / 100).toFixed(2); // Ensure 2 decimal places
-    
-    const breakdown = {
-      item_total: {
-        currency_code: currencyCode,
-        value: itemTotal,
-      },
-    };
-    
-    if (parseFloat(taxTotal) > 0) {
-      breakdown.tax_total = {
-        currency_code: currencyCode,
-        value: taxTotal,
+      items = [
+        {
+          name: 'Order',
+          quantity: '1',
+          unit_amount: {
+            currency_code: currencyCode,
+            value: finalAmount,
+          },
+        },
+      ];
+      logger.debug('[PAYPAL ORDERS] Creating order with explicit amount', { amount: finalAmount });
+    } else {
+      let itemTotalCents = 0;
+      items = orderData.items.map(item => {
+        const unitAmount = typeof item.unit_amount === 'number' ? item.unit_amount : parseFloat(item.unit_amount);
+        const quantity = typeof item.quantity === 'number' ? item.quantity : parseFloat(item.quantity);
+        
+        const unitAmountCents = Math.round(unitAmount * 100);
+        const lineTotalCents = unitAmountCents * quantity;
+        itemTotalCents += lineTotalCents;
+        
+        return {
+          name: item.name,
+          quantity: quantity.toString(),
+          unit_amount: {
+            currency_code: currencyCode,
+            value: Number(unitAmount).toFixed(2),
+          },
+        };
+      });
+      
+      const itemTotal = (itemTotalCents / 100).toFixed(2);
+      
+      const taxTotal = orderData.tax_total ? parseFloat(orderData.tax_total).toFixed(2) : '0.00';
+      const shipping = orderData.shipping ? parseFloat(orderData.shipping).toFixed(2) : '0.00';
+      const handling = orderData.handling ? parseFloat(orderData.handling).toFixed(2) : '0.00';
+      const discount = orderData.discount ? parseFloat(orderData.discount).toFixed(2) : '0.00';
+      
+      const finalAmountCents = 
+        itemTotalCents + 
+        Math.round(parseFloat(taxTotal) * 100) + 
+        Math.round(parseFloat(shipping) * 100) + 
+        Math.round(parseFloat(handling) * 100) - 
+        Math.round(parseFloat(discount) * 100);
+      
+      finalAmount = Number(finalAmountCents / 100).toFixed(2);
+      
+      breakdown = {
+        item_total: {
+          currency_code: currencyCode,
+          value: itemTotal,
+        },
       };
-    }
-    
-    if (parseFloat(shipping) > 0) {
-      breakdown.shipping = {
-        currency_code: currencyCode,
-        value: shipping,
-      };
-    }
-    
-    if (parseFloat(handling) > 0) {
-      breakdown.handling = {
-        currency_code: currencyCode,
-        value: handling,
-      };
-    }
-    
-    if (parseFloat(discount) > 0) {
-      breakdown.discount = {
-        currency_code: currencyCode,
-        value: discount,
-      };
+      
+      if (parseFloat(taxTotal) > 0) {
+        breakdown.tax_total = {
+          currency_code: currencyCode,
+          value: taxTotal,
+        };
+      }
+      
+      if (parseFloat(shipping) > 0) {
+        breakdown.shipping = {
+          currency_code: currencyCode,
+          value: shipping,
+        };
+      }
+      
+      if (parseFloat(handling) > 0) {
+        breakdown.handling = {
+          currency_code: currencyCode,
+          value: handling,
+        };
+      }
+      
+      if (parseFloat(discount) > 0) {
+        breakdown.discount = {
+          currency_code: currencyCode,
+          value: discount,
+        };
+      }
     }
 
-    // Create PayPal order (NO payment_source - handled by frontend CardFields)
     const request = new paypal.orders.OrdersCreateRequest();
     request.prefer('return=representation');
     
@@ -386,13 +367,7 @@ export const createPayPalOrderForCheckout = async (orderData) => {
   }
 };
 
-/**
- * Capture PayPal Order
- * SECURITY: Only accepts orderId - no card data
- * 
- * @param {string} orderId - PayPal order ID
- * @returns {Promise<Object>} Capture response
- */
+// Purpose: Captures a PayPal order for checkout with validation checks
 export const capturePayPalOrderForCheckout = async (orderId) => {
   try {
     if (!orderId) {
@@ -401,7 +376,6 @@ export const capturePayPalOrderForCheckout = async (orderId) => {
 
     logger.debug('[PAYPAL ORDERS] Capturing order', { orderId });
 
-    // FIX: First verify the order exists and is in the correct state
     try {
       const orderRequest = new paypal.orders.OrdersGetRequest(orderId);
       const orderResponse = await client().execute(orderRequest);
@@ -412,7 +386,6 @@ export const capturePayPalOrderForCheckout = async (orderId) => {
         status: orderStatus,
       });
       
-      // FIX: Order must be APPROVED before capture
       if (orderStatus !== 'APPROVED') {
         throw new Error(`Order is not in APPROVED state. Current status: ${orderStatus}`);
       }
@@ -429,8 +402,6 @@ export const capturePayPalOrderForCheckout = async (orderId) => {
     
     const capture = await client().execute(request);
     
-    // FIX: Extract capture data from correct PayPal response structure
-    // PayPal Orders API response: capture.result.purchase_units[0].payments.captures[0]
     const captureData = capture.result.purchase_units?.[0]?.payments?.captures?.[0];
     
     if (!captureData) {
@@ -441,12 +412,10 @@ export const capturePayPalOrderForCheckout = async (orderId) => {
       throw new Error('Capture data not found in PayPal response');
     }
     
-    // FIX: Extract amount and currency from correct path
     const capturedAmount = captureData.amount?.value ? parseFloat(captureData.amount.value) : null;
     const capturedCurrency = captureData.amount?.currency_code || 'USD';
     const captureStatus = captureData.status || capture.result.status;
     
-    // FIX: Verify capture was successful
     if (captureStatus !== 'COMPLETED') {
       logger.error('[PAYPAL ORDERS] Capture not completed', {
         orderId,
@@ -470,7 +439,7 @@ export const capturePayPalOrderForCheckout = async (orderId) => {
       status: captureStatus, // Use capture status, not order status
       amount: capturedAmount,
       currency: capturedCurrency,
-      fullCaptureData: captureData, // Include full capture data for debugging
+      fullCaptureData: captureData,
     };
   } catch (error) {
     logger.error('[PAYPAL ORDERS] Capture error', {
@@ -480,7 +449,6 @@ export const capturePayPalOrderForCheckout = async (orderId) => {
       stack: error.stack,
     });
     
-    // FIX: Provide more helpful error messages
     if (error.statusCode === 422) {
       throw new Error('Order cannot be captured. It may have already been captured or is in an invalid state.');
     } else if (error.statusCode === 404) {
@@ -493,45 +461,141 @@ export const capturePayPalOrderForCheckout = async (orderId) => {
   }
 };
 
-/**
- * Creates a PayPal payout to seller using PayPal Payouts API
- * 
- * IMPORTANT: This function is ONLY used for seller payouts AFTER 15 days.
- * It is NOT used during customer checkout.
- * 
- * ESCROW FLOW:
- * 1. Customer pays → Admin PayPal account (via createPayPalOrder)
- * 2. After 15 days → Seller receives payout (via this function)
- * 
- * This function uses admin credentials to send money FROM admin account TO seller account.
- */
-export const createPayPalPayout = async (sellerEmail, amount, currency = 'USD') => {
+// Purpose: Builds PayPal OAuth authorize URL for seller Connect flow (no email-only)
+export const getPayPalOAuthAuthorizeUrl = (state, redirectUri) => {
+  const clientId = process.env.PAYPAL_CLIENT_ID;
+  if (!clientId || clientId.trim() === '' || clientId === 'your_paypal_client_id') {
+    throw new Error('PayPal CLIENT_ID is missing or not configured.');
+  }
+  const baseUrl = process.env.PAYPAL_ENV === 'production'
+    ? 'https://www.paypal.com'
+    : 'https://www.sandbox.paypal.com';
+  const scope = encodeURIComponent('openid email profile');
+  const params = new URLSearchParams({
+    client_id: clientId,
+    response_type: 'code',
+    scope: 'openid email profile',
+    redirect_uri: redirectUri,
+    state: state,
+  });
+  return `${baseUrl}/connect/oauth2/authorize?${params.toString()}`;
+};
+
+// Purpose: Exchanges PayPal OAuth authorization code for access token
+export const exchangePayPalOAuthCode = async (code, redirectUri) => {
+  const clientId = process.env.PAYPAL_CLIENT_ID;
+  const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
+  const paypalEnv = process.env.PAYPAL_ENV || 'sandbox';
+  const baseUrl = paypalEnv.toLowerCase() === 'production'
+    ? 'https://api-m.paypal.com'
+    : 'https://api-m.sandbox.paypal.com';
+
+  if (!clientId || !clientSecret) {
+    throw new Error('PayPal credentials not configured.');
+  }
+
+  const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri,
+  }).toString();
+
+  const response = await fetch(`${baseUrl}/v1/oauth2/token`, {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${auth}`,
+    },
+    body,
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    logger.error('PayPal OAuth token exchange failed', { status: response.status, body: errText });
+    throw new Error(`PayPal OAuth failed: ${errText}`);
+  }
+
+  return await response.json();
+};
+
+// Purpose: Fetches PayPal user info (merchant id, email, verified) for seller onboarding
+export const getPayPalUserInfo = async (accessToken) => {
+  const paypalEnv = process.env.PAYPAL_ENV || 'sandbox';
+  const baseUrl = paypalEnv.toLowerCase() === 'production'
+    ? 'https://api-m.paypal.com'
+    : 'https://api-m.sandbox.paypal.com';
+
+  const response = await fetch(`${baseUrl}/v1/identity/oauth2/userinfo?schema=openid`, {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    logger.error('PayPal userinfo failed', { status: response.status, body: errText });
+    throw new Error(`PayPal userinfo failed: ${errText}`);
+  }
+
+  const data = await response.json();
+  const merchantId = data.user_id || data.sub || null;
+  const email = data.email || null;
+  const emailVerified = data.email_verified === true || data.verified === true;
+  const accountStatus = emailVerified ? 'verified' : 'unverified';
+
+  return {
+    paypalMerchantId: merchantId,
+    paypalEmail: email,
+    emailVerified,
+    accountStatus,
+    paymentsReceivable: true, // OAuth-connected accounts can receive; PayPal will reject if limited
+  };
+};
+
+// Purpose: Creates a PayPal payout. Use merchantId when available (never email-only for verified sellers).
+// options: { useMerchantId: boolean } - when true, recipient is PayPal merchant/user ID (PAYPAL_ID).
+export const createPayPalPayout = async (recipient, amount, currency = 'USD', options = {}) => {
   try {
     const accessToken = await getPayPalAccessToken();
     const batchId = `PAYOUT-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    
+    const useMerchantId = options.useMerchantId === true && recipient;
+
+    if (!recipient) {
+      throw new Error('PayPal payout requires recipient (merchant ID or email). Missing paypalMerchantId.');
+    }
+
+    const item = {
+      amount: {
+        value: Number(amount).toFixed(2),
+        currency: currency,
+      },
+      note: 'Payout from DGMARQ marketplace',
+      sender_item_id: `ITEM-${Date.now()}`,
+    };
+
+    if (useMerchantId) {
+      item.recipient_type = 'PAYPAL_ID';
+      item.receiver = recipient;
+    } else {
+      item.recipient_type = 'EMAIL';
+      item.receiver = recipient;
+    }
+
     const payoutData = {
       sender_batch_header: {
         sender_batch_id: batchId,
         email_subject: 'You have a payout from DGMARQ',
         email_message: 'You have received a payout from DGMARQ marketplace.',
       },
-      items: [
-        {
-          recipient_type: 'EMAIL',
-          amount: {
-            value: amount.toFixed(2),
-            currency: currency,
-          },
-          receiver: sellerEmail,
-          note: 'Payout from DGMARQ marketplace',
-          sender_item_id: `ITEM-${Date.now()}`,
-        },
-      ],
+      items: [item],
     };
 
-    const baseUrl = process.env.PAYPAL_ENV === 'production' 
-      ? 'https://api-m.paypal.com' 
+    const baseUrl = process.env.PAYPAL_ENV === 'production'
+      ? 'https://api-m.paypal.com'
       : 'https://api-m.sandbox.paypal.com';
 
     const response = await fetch(`${baseUrl}/v1/payments/payouts`, {
@@ -544,13 +608,14 @@ export const createPayPalPayout = async (sellerEmail, amount, currency = 'USD') 
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(`PayPal payout failed: ${errorData.message || JSON.stringify(errorData)}`);
+      const errorData = await response.json().catch(() => ({}));
+      const msg = errorData.message || errorData.details?.[0]?.issue || JSON.stringify(errorData);
+      throw new Error(`PayPal payout failed: ${msg}`);
     }
 
     const payout = await response.json();
     const batchHeader = payout.batch_header;
-    
+
     return {
       batchId: batchHeader.payout_batch_id,
       itemId: payout.items?.[0]?.payout_item_id || null,
@@ -563,16 +628,13 @@ export const createPayPalPayout = async (sellerEmail, amount, currency = 'USD') 
   }
 };
 
-/**
- * Get PayPal access token for Payouts API
- */
+// Purpose: Gets PayPal access token for Payouts API authentication
 const getPayPalAccessToken = async () => {
   try {
     const clientId = process.env.PAYPAL_CLIENT_ID;
     const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
     const paypalEnv = process.env.PAYPAL_ENV || 'sandbox';
 
-    // FIX: Enhanced validation with helpful error messages
     if (!clientId || clientId.trim() === '' || clientId === 'your_paypal_client_id') {
       throw new Error('PayPal CLIENT_ID is missing or not configured. Please set PAYPAL_CLIENT_ID in your .env file.');
     }
@@ -603,7 +665,6 @@ const getPayPalAccessToken = async () => {
       const errorData = await response.text();
       let errorMessage = `Failed to get PayPal access token: ${errorData}`;
       
-      // FIX: Provide helpful error message for authentication failures
       if (errorData.includes('invalid_client') || errorData.includes('Client Authentication failed')) {
         errorMessage = `PayPal authentication failed. Please check:\n` +
           `1. PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET are correct\n` +
@@ -623,15 +684,9 @@ const getPayPalAccessToken = async () => {
   }
 };
 
-/**
- * Validates if an email is associated with a valid PayPal account
- * Note: PayPal doesn't provide a direct API to check email validity.
- * This function validates the email format and attempts to verify via Identity API.
- * Full validation occurs when the first payout is attempted.
- */
+// Purpose: Validates if an email has valid format for PayPal payouts
 export const validatePayPalEmail = async (email) => {
   try {
-    // Basic email format validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return {
@@ -639,11 +694,6 @@ export const validatePayPalEmail = async (email) => {
         error: 'Invalid email format',
       };
     }
-
-    // Note: PayPal doesn't have a public API to verify if an email is a PayPal account
-    // The actual validation happens when we attempt the first payout.
-    // For now, we validate the format and let the payout API handle account validation.
-    // If the email is not a PayPal account, the payout will fail and we can handle it then.
     
     return {
       isValid: true,
@@ -658,29 +708,21 @@ export const validatePayPalEmail = async (email) => {
   }
 };
 
-/**
- * Verifies PayPal webhook signature using PayPal's official verification API
- * @param {Object} req - Express request object containing webhook headers and body
- * @returns {Promise<boolean>} - True if verification succeeds, false otherwise
- */
+// Purpose: Verifies PayPal webhook signature using PayPal's verification API
 export const verifyPayPalWebhook = async (req) => {
   try {
     const webhookId = process.env.PAYPAL_WEBHOOK_ID;
     if (!webhookId) {
       logger.warn('PayPal webhook ID not configured - skipping verification');
-      // In development, allow unverified webhooks if webhook ID is not set
-      // In production, this should return false for security
       return process.env.NODE_ENV !== 'production';
     }
 
-    // Extract required headers from PayPal webhook (case-insensitive)
     const transmissionId = req.headers['paypal-transmission-id'] || req.headers['PAYPAL-TRANSMISSION-ID'];
     const transmissionTime = req.headers['paypal-transmission-time'] || req.headers['PAYPAL-TRANSMISSION-TIME'];
     const certUrl = req.headers['paypal-cert-url'] || req.headers['PAYPAL-CERT-URL'];
     const authAlgo = req.headers['paypal-auth-algo'] || req.headers['PAYPAL-AUTH-ALGO'];
     const transmissionSig = req.headers['paypal-transmission-sig'] || req.headers['PAYPAL-TRANSMISSION-SIG'];
 
-    // FIX: Validate all required headers are present (PayPal transmission headers)
     if (!transmissionId || !transmissionTime || !certUrl || !authAlgo || !transmissionSig) {
       logger.error('[WEBHOOK] Missing required PayPal webhook transmission headers', {
         transmissionId: !!transmissionId,
@@ -693,21 +735,15 @@ export const verifyPayPalWebhook = async (req) => {
       return false;
     }
 
-    // Get raw request body
-    // The route uses express.raw(), so body will be a Buffer
     let webhookEvent;
     if (Buffer.isBuffer(req.body)) {
-      // Body is a Buffer, convert to string
       webhookEvent = req.body.toString('utf8');
     } else if (typeof req.body === 'string') {
-      // Body is already a string
       webhookEvent = req.body;
     } else {
-      // Body is already parsed, stringify it back
       webhookEvent = JSON.stringify(req.body);
     }
 
-    // Parse the webhook event to ensure it's valid JSON
     let parsedWebhookEvent;
     try {
       parsedWebhookEvent = JSON.parse(webhookEvent);
@@ -716,10 +752,8 @@ export const verifyPayPalWebhook = async (req) => {
       return false;
     }
 
-    // Get PayPal access token for API call
     const accessToken = await getPayPalAccessToken();
 
-    // Prepare verification request payload
     const verificationPayload = {
       transmission_id: transmissionId,
       transmission_time: transmissionTime,
@@ -727,15 +761,13 @@ export const verifyPayPalWebhook = async (req) => {
       auth_algo: authAlgo,
       transmission_sig: transmissionSig,
       webhook_id: webhookId,
-      webhook_event: parsedWebhookEvent, // PayPal expects parsed JSON object
+      webhook_event: parsedWebhookEvent,
     };
 
-    // Determine base URL based on environment
     const baseUrl = process.env.PAYPAL_ENV === 'production' 
       ? 'https://api-m.paypal.com' 
       : 'https://api-m.sandbox.paypal.com';
 
-    // Call PayPal's webhook verification API
     const response = await fetch(`${baseUrl}/v1/notifications/verify-webhook-signature`, {
       method: 'POST',
       headers: {
@@ -757,7 +789,6 @@ export const verifyPayPalWebhook = async (req) => {
 
     const verificationResult = await response.json();
 
-    // Check verification status
     if (verificationResult.verification_status === 'SUCCESS') {
       logger.info('[WEBHOOK] PayPal webhook signature verified successfully', {
         webhookId: webhookId,
@@ -775,13 +806,12 @@ export const verifyPayPalWebhook = async (req) => {
     }
   } catch (error) {
     logger.error('Error verifying PayPal webhook signature', error);
-    // In case of error, fail securely by returning false
     return false;
   }
 };
 
-// Processes a PayPal refund for a captured payment
-export const processRefund = async (captureId, amount, currency = 'EUR') => {
+// Purpose: Processes a PayPal refund for a captured payment
+export const processRefund = async (captureId, amount, currency = 'USD') => {
   try {
     const request = new paypal.payments.CapturesRefundRequest(captureId);
     request.requestBody({
@@ -803,7 +833,7 @@ export const processRefund = async (captureId, amount, currency = 'EUR') => {
   }
 };
 
-// Creates a PayPal subscription plan for recurring billing
+// Purpose: Creates a PayPal subscription plan for recurring billing
 export const createPayPalSubscriptionPlan = async (planData) => {
   try {
     const accessToken = await getPayPalAccessToken();
@@ -870,7 +900,7 @@ export const createPayPalSubscriptionPlan = async (planData) => {
   }
 };
 
-// Creates a PayPal subscription for recurring billing
+// Purpose: Creates a PayPal subscription for recurring billing
 export const createPayPalSubscription = async (planId, returnUrl, cancelUrl) => {
   try {
     const accessToken = await getPayPalAccessToken();
@@ -928,7 +958,7 @@ export const createPayPalSubscription = async (planId, returnUrl, cancelUrl) => 
   }
 };
 
-// Retrieves PayPal subscription details by subscription ID
+// Purpose: Retrieves PayPal subscription details by subscription ID
 export const getPayPalSubscription = async (subscriptionId) => {
   try {
     const accessToken = await getPayPalAccessToken();
@@ -955,7 +985,7 @@ export const getPayPalSubscription = async (subscriptionId) => {
   }
 };
 
-// Cancels a PayPal subscription
+// Purpose: Cancels a PayPal subscription with reason
 export const cancelPayPalSubscription = async (subscriptionId, reason = 'User requested cancellation') => {
   try {
     const accessToken = await getPayPalAccessToken();

@@ -1,6 +1,6 @@
 import { BundleDeal } from "../models/bundledeal.model.js";
 
-// Finds an active bundle deal for the given product IDs
+// Purpose: Finds an active bundle deal for the given product IDs
 export const findActiveBundleDeal = async (productIds) => {
   if (!productIds || productIds.length !== 2) {
     return null;
@@ -18,7 +18,7 @@ export const findActiveBundleDeal = async (productIds) => {
   return bundleDeal;
 };
 
-// Calculates bundle discount amount based on discount type and value
+// Purpose: Calculates bundle discount amount based on discount type and value
 export const calculateBundleDiscount = (bundleDeal, totalPrice) => {
   if (!bundleDeal || !totalPrice) {
     return 0;
@@ -35,7 +35,7 @@ export const calculateBundleDiscount = (bundleDeal, totalPrice) => {
   return 0;
 };
 
-// Checks if cart items match a bundle deal and returns discount information
+// Purpose: Checks if cart items match a bundle deal and returns discount information
 export const checkCartForBundle = async (cartItems) => {
   if (!cartItems || cartItems.length < 2) {
     return null;

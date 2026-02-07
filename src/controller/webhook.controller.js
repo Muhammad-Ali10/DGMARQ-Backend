@@ -11,24 +11,17 @@ import { renewSubscription, handleSubscriptionPaymentFailure } from "../services
 import { verifyPayPalWebhook } from "../services/payment.service.js";
 import paypal from "@paypal/checkout-server-sdk";
 
-/**
- * PayPal webhook handler
- */
+// Purpose: Handles PayPal webhook events for payments and subscriptions
 const handlePayPalWebhook = asyncHandler(async (req, res) => {
-  // FIX: Verify webhook signature FIRST - do not touch DB if verification fails
-  // This is a security requirement - webhook must be verified before any processing
   const isValid = await verifyPayPalWebhook(req);
   if (!isValid) {
     logger.error('[WEBHOOK] Signature verification failed - rejecting webhook');
-    // FIX: Return 400 (not 401) as per requirement
     return res.status(400).json({
       ok: false,
       message: "Webhook signature verification failed",
     });
   }
 
-  // Only after verification, parse and process webhook
-  // Parse webhook event body (may be Buffer, string, or already parsed)
   let webhookEvent;
   if (Buffer.isBuffer(req.body)) {
     webhookEvent = JSON.parse(req.body.toString('utf8'));
@@ -38,13 +31,11 @@ const handlePayPalWebhook = asyncHandler(async (req, res) => {
     webhookEvent = req.body;
   }
 
-  // FIX: Safe logging of event_type and resource.id (non-sensitive identifiers only)
   const eventType = webhookEvent?.event_type || 'UNKNOWN';
   const resource = webhookEvent?.resource || {};
   const resourceId = resource?.id || 'N/A';
   const webhookId = webhookEvent?.id || 'N/A';
 
-  // FIX: Log webhook event details for auditing (safe - only non-sensitive identifiers)
   logger.info('[WEBHOOK] Received webhook event', {
     eventType,
     resourceId,
@@ -52,7 +43,6 @@ const handlePayPalWebhook = asyncHandler(async (req, res) => {
     timestamp: webhookEvent?.create_time || new Date().toISOString(),
   });
 
-  // FIX: Validate webhook event structure
   if (!eventType || eventType === 'UNKNOWN') {
     logger.error('[WEBHOOK] Invalid webhook event - missing event_type');
     return res.status(400).json({
@@ -61,7 +51,6 @@ const handlePayPalWebhook = asyncHandler(async (req, res) => {
     });
   }
 
-  // FIX: Supported event types (only process these)
   const supportedEventTypes = [
     'PAYMENT.CAPTURE.COMPLETED',
     'PAYMENT.CAPTURE.DENIED',
@@ -76,7 +65,6 @@ const handlePayPalWebhook = asyncHandler(async (req, res) => {
     'BILLING.SUBSCRIPTION.RENEWED',
   ];
 
-  // FIX: Ignore unsupported events (log but don't process)
   if (!supportedEventTypes.includes(eventType)) {
     logger.warn(`[WEBHOOK] Unsupported event type ignored: ${eventType} (resource.id: ${resourceId})`);
     // Return 200 to acknowledge receipt (PayPal expects this)
@@ -89,7 +77,6 @@ const handlePayPalWebhook = asyncHandler(async (req, res) => {
   }
 
   try {
-    // FIX: Process supported events
     switch (eventType) {
       case "PAYMENT.CAPTURE.COMPLETED":
         logger.info(`[WEBHOOK] Processing PAYMENT.CAPTURE.COMPLETED for resource.id: ${resourceId}`);
@@ -147,7 +134,6 @@ const handlePayPalWebhook = asyncHandler(async (req, res) => {
         break;
 
       default:
-        // This should never happen due to supportedEventTypes check above
         logger.warn(`[WEBHOOK] Event type '${eventType}' passed validation but has no handler`);
     }
 
@@ -163,7 +149,6 @@ const handlePayPalWebhook = asyncHandler(async (req, res) => {
       error: error.message,
       stack: error.stack,
     });
-    // Return 200 to acknowledge receipt (PayPal expects this even on processing errors)
     return res.status(200).json({
       ok: false,
       message: "Webhook received but processing failed",
@@ -173,15 +158,8 @@ const handlePayPalWebhook = asyncHandler(async (req, res) => {
   }
 });
 
-// Handles PayPal payment capture completed event (RECONCILIATION)
-// FIX: Resource shape for PAYMENT.CAPTURE.COMPLETED:
-// - resource.id: capture ID
-// - resource.amount.value: captured amount (string)
-// - resource.amount.currency_code: currency code
-// - resource.supplementary_data.related_ids.order_id: PayPal order ID
-// - resource.payee: payee information (email/merchant_id)
+// Purpose: Handles PayPal payment capture completed event for reconciliation
 const handlePaymentCaptureCompleted = async (resource) => {
-  // FIX: Validate resource shape
   if (!resource || !resource.id) {
     logger.error('[WEBHOOK] Invalid PAYMENT.CAPTURE.COMPLETED resource - missing id');
     return;
@@ -192,7 +170,6 @@ const handlePaymentCaptureCompleted = async (resource) => {
   const capturedAmount = parseFloat(resource.amount?.value || 0);
   const capturedCurrency = resource.amount?.currency_code || 'USD';
 
-  // FIX: Log resource details for debugging (safe - only non-sensitive identifiers)
   logger.debug('[WEBHOOK] PAYMENT.CAPTURE.COMPLETED resource', {
     captureId,
     paypalOrderId: paypalOrderId || 'N/A',
@@ -201,7 +178,6 @@ const handlePaymentCaptureCompleted = async (resource) => {
     status: resource.status || 'N/A',
   });
 
-  // Find order by paypalOrderId or captureId (idempotency)
   const order = await Order.findOne({
     $or: [
       { paypalOrderId: paypalOrderId },
@@ -211,12 +187,9 @@ const handlePaymentCaptureCompleted = async (resource) => {
 
   if (!order) {
     logger.warn(`[WEBHOOK] Order not found for capture ID: ${captureId}, orderId: ${paypalOrderId}`);
-    // Log for reconciliation - order may not exist yet (race condition)
     return;
   }
 
-  // FIX: Amount and currency already extracted above (lines 108-109)
-  // RECONCILIATION: Verify captured amount matches DB expected total
   const expectedAmount = parseFloat(order.totalAmount.toFixed(2));
   const receivedAmount = parseFloat(capturedAmount.toFixed(2));
 
@@ -226,7 +199,6 @@ const handlePaymentCaptureCompleted = async (resource) => {
       received: capturedCurrency,
       captureId,
     });
-    // Don't mark as paid if currency mismatch
     return;
   }
 
@@ -237,11 +209,9 @@ const handlePaymentCaptureCompleted = async (resource) => {
       difference: Math.abs(receivedAmount - expectedAmount).toFixed(2),
       captureId,
     });
-    // Don't mark as paid if amount mismatch
     return;
   }
 
-  // VERIFICATION: Ensure payment was received by admin account
   const payee = resource.payee;
   if (payee) {
     logger.info(`[WEBHOOK] Payment captured - Receiver: ${payee.email || payee.merchant_id || 'Admin Account'}`);
@@ -250,12 +220,10 @@ const handlePaymentCaptureCompleted = async (resource) => {
     }
   }
 
-  // FIX: Atomic update - only update if paymentStatus != "paid" (idempotent)
-  // This prevents race conditions between capture endpoint and webhook
   const updateResult = await Order.updateOne(
     {
       _id: order._id,
-      paymentStatus: { $ne: 'paid' }, // Only update if not already paid
+      paymentStatus: { $ne: 'paid' },
     },
     {
       $set: {
@@ -266,7 +234,6 @@ const handlePaymentCaptureCompleted = async (resource) => {
     }
   );
 
-  // IDEMPOTENCY: Check if update was applied (order was not already paid)
   if (updateResult.matchedCount === 0) {
     logger.info(`[WEBHOOK] Order ${order._id} already marked as paid (idempotent webhook)`);
     return;
@@ -278,28 +245,29 @@ const handlePaymentCaptureCompleted = async (resource) => {
   }
 
   logger.info(`[WEBHOOK] Order ${order._id} marked as paid via webhook`);
-  await Transaction.create({
-    userId: order.userId,
-    orderId: order._id,
-    type: "payment",
-    amount: parseFloat(resource.amount.value),
-    currency: resource.amount.currency_code,
-    status: "completed",
-    paymentMethod: "PayPal",
-    paypalTransactionId: captureId,
-    paypalOrderId: resource.supplementary_data?.related_ids?.order_id,
-    paypalCaptureId: captureId,
-    description: `Payment for order ${order._id} - Captured to ADMIN account`,
-  });
-
-  await auditLog(order.userId, "PAYMENT_CAPTURED", `Payment captured for order ${order._id} to ADMIN account`, {
-    orderId: order._id,
-    captureId,
-    payee: payee ? (payee.email || payee.merchant_id) : 'Admin Account',
-  });
+  if (order.userId) {
+    await Transaction.create({
+      userId: order.userId,
+      orderId: order._id,
+      type: "payment",
+      amount: parseFloat(resource.amount.value),
+      currency: resource.amount.currency_code,
+      status: "completed",
+      paymentMethod: "PayPal",
+      paypalTransactionId: captureId,
+      paypalOrderId: resource.supplementary_data?.related_ids?.order_id,
+      paypalCaptureId: captureId,
+      description: `Payment for order ${order._id} - Captured to ADMIN account`,
+    });
+    await auditLog(order.userId, "PAYMENT_CAPTURED", `Payment captured for order ${order._id} to ADMIN account`, {
+      orderId: order._id,
+      captureId,
+      payee: payee ? (payee.email || payee.merchant_id) : 'Admin Account',
+    });
+  }
 };
 
-// Handles PayPal payment capture denied event
+// Purpose: Handles PayPal payment capture denied event
 const handlePaymentCaptureDenied = async (resource) => {
   const captureId = resource.id;
 
@@ -331,7 +299,7 @@ const handlePaymentCaptureDenied = async (resource) => {
   });
 };
 
-// Handles PayPal payment refunded event
+// Purpose: Handles PayPal payment refunded event
 const handlePaymentRefunded = async (resource) => {
   const refundId = resource.id;
   const captureId = resource.capture_id;
@@ -364,7 +332,7 @@ const handlePaymentRefunded = async (resource) => {
   });
 };
 
-// Handles PayPal payout completed event
+// Purpose: Handles PayPal payout completed event
 const handlePayoutCompleted = async (resource) => {
   const payoutBatchId = resource.payout_batch_id;
 
@@ -397,7 +365,7 @@ const handlePayoutCompleted = async (resource) => {
   });
 };
 
-// Handles PayPal payout failed event
+// Purpose: Handles PayPal payout failed event
 const handlePayoutFailed = async (resource) => {
   const payoutBatchId = resource.payout_batch_id;
 
@@ -430,13 +398,13 @@ const handlePayoutFailed = async (resource) => {
   });
 };
 
-// Handles PayPal subscription created event
+// Purpose: Handles PayPal subscription created event
 const handleSubscriptionCreated = async (resource) => {
   const subscriptionId = resource.id;
   logger.info(`[WEBHOOK] Subscription created: ${subscriptionId}`);
 };
 
-// Handles PayPal subscription activated event
+// Purpose: Handles PayPal subscription activated event
 const handleSubscriptionActivated = async (resource) => {
   const subscriptionId = resource.id;
   
@@ -452,7 +420,7 @@ const handleSubscriptionActivated = async (resource) => {
   }
 };
 
-// Handles PayPal subscription cancelled event
+// Purpose: Handles PayPal subscription cancelled event
 const handleSubscriptionCancelled = async (resource) => {
   const subscriptionId = resource.id;
   
@@ -469,7 +437,7 @@ const handleSubscriptionCancelled = async (resource) => {
   }
 };
 
-// Handles PayPal subscription expired event
+// Purpose: Handles PayPal subscription expired event
 const handleSubscriptionExpired = async (resource) => {
   const subscriptionId = resource.id;
   
@@ -485,7 +453,7 @@ const handleSubscriptionExpired = async (resource) => {
   }
 };
 
-// Handles PayPal subscription payment failed event
+// Purpose: Handles PayPal subscription payment failed event
 const handleSubscriptionPaymentFailed = async (resource) => {
   const subscriptionId = resource.id;
   
@@ -500,7 +468,7 @@ const handleSubscriptionPaymentFailed = async (resource) => {
   }
 };
 
-// Handles PayPal subscription renewed event
+// Purpose: Handles PayPal subscription renewed event
 const handleSubscriptionRenewed = async (resource) => {
   const subscriptionId = resource.id;
   

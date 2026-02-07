@@ -2,6 +2,8 @@ import express from "express";
 import {
   linkPayoutAccount,
   getMyPayoutAccount,
+  getPayPalConnectUrl,
+  paypalOAuthCallback,
   verifyPayoutAccount,
   blockPayoutAccount,
   getSellerPayoutAccount,
@@ -10,15 +12,17 @@ import {
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
+// Purpose: Payout account routes for sellers and admin verification
+
 const router = express.Router();
 
 router.use(apiRateLimiter);
 
-// Seller routes
 router.post("/link", verifyJWT, authorizeRoles("seller"), linkPayoutAccount);
 router.get("/my", verifyJWT, authorizeRoles("seller"), getMyPayoutAccount);
+router.get("/paypal/connect", verifyJWT, authorizeRoles("seller"), getPayPalConnectUrl);
+router.get("/paypal/callback", paypalOAuthCallback);
 
-// Admin routes
 router.patch("/:accountId/verify", verifyJWT, authorizeRoles("admin"), verifyPayoutAccount);
 router.patch("/:accountId/block", verifyJWT, authorizeRoles("admin"), blockPayoutAccount);
 router.get("/seller/:sellerId", verifyJWT, authorizeRoles("admin"), getSellerPayoutAccount);

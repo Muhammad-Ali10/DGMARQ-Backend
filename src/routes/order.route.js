@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
+import { verifyJWT, authorizeRoles, optionalJWT } from "../middlerwares/authmiddlerware.js";
 import {
   createOrder,
   getOrders,
@@ -10,23 +10,24 @@ import {
   getSellerOrders,
 } from "../controller/order.controller.js";
 
+// Purpose: Order routes for customers, sellers, and admins to manage orders
+
 const router = Router();
 
-// Webhook endpoint for PayPal (no auth, verified by signature)
 router.route("/create").post(createOrder);
 
-// User endpoints
 router
   .route("/my-orders")
   .get(verifyJWT, authorizeRoles("customer", "admin"), getOrders);
 
 router
   .route("/:orderId")
-  .get(verifyJWT, authorizeRoles("customer", "admin"), getOrderById);
+  .get(verifyJWT, authorizeRoles("customer", "admin", "seller"), getOrderById);
 
+// License keys: optionalJWT allows guest access with ?guestEmail= for guest orders
 router
   .route("/:orderId/keys")
-  .get(verifyJWT, authorizeRoles("customer", "admin"), getOrderKeys);
+  .get(optionalJWT, getOrderKeys);
 
 router
   .route("/:orderId/cancel")
@@ -36,7 +37,6 @@ router
   .route("/:orderId/reorder")
   .post(verifyJWT, authorizeRoles("customer", "admin"), reorder);
 
-// Seller endpoints
 router
   .route("/seller/my-orders")
   .get(verifyJWT, authorizeRoles("seller"), getSellerOrders);

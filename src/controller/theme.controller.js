@@ -4,7 +4,7 @@ import { Theme } from "../models/theme.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
-// Creates a new theme with duplicate name checking
+// Purpose: Creates a new theme with duplicate name checking
 const createTheme = asyncHandler(async (req, res) => {
   const { name } = req.body;
 
@@ -27,7 +27,7 @@ const createTheme = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, theme, "Theme created successfully"));
 });
 
-// Updates a theme by ID with duplicate name validation
+// Purpose: Updates a theme by ID with duplicate name validation
 const updateTheme = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { name } = req.body;
@@ -62,7 +62,7 @@ const updateTheme = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, theme, "Theme updated successfully"));
 });
 
-// Deletes a theme by ID
+// Purpose: Deletes a theme by ID
 const deleteTheme = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -78,7 +78,7 @@ const deleteTheme = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, theme, "Theme deleted successfully"));
 });
 
-// Retrieves all themes with pagination and optional search filtering
+// Purpose: Retrieves all themes with pagination and optional search filtering
 const getThemes = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, search = "" } = req.query;
 

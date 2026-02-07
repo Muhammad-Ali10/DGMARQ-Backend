@@ -14,10 +14,7 @@ import {
 import { upload } from "../middlerwares/multer.middlerware.js";
 import { fileUploader } from "../utils/cloudinary.js";
 
-/**
- * Create flash deal (admin only)
- * POST /api/v1/flash-deal
- */
+// Purpose: Creates a new flash deal for a product with discount and date range
 const createFlashDeal = asyncHandler(async (req, res) => {
   const { productId, discountPercentage, startDate, endDate, banner } =
     req.body;
@@ -33,29 +30,24 @@ const createFlashDeal = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Invalid product ID");
   }
 
-  // Validate product exists and is approved/active
   const product = await Product.findById(productId);
   if (!product) {
     throw new ApiError(404, "Product not found");
   }
 
-  // Check product status - must be approved/active
   if (!['active', 'approved'].includes(product.status)) {
     throw new ApiError(400, "Product must be approved and active to create a flash deal");
   }
 
-  // Validate discount percentage
   if (discountPercentage < 1 || discountPercentage > 90) {
     throw new ApiError(400, "Discount percentage must be between 1 and 90");
   }
 
-  // Validate dates
   const dateValidation = validateFlashDealDates(startDate, endDate);
   if (!dateValidation.valid) {
     throw new ApiError(400, dateValidation.error);
   }
 
-  // Check for overlapping deals
   const hasOverlap = await checkOverlappingFlashDeals(
     productId,
     startDate,
@@ -68,7 +60,6 @@ const createFlashDeal = asyncHandler(async (req, res) => {
     );
   }
 
-  // Handle banner upload if provided
   let bannerUrl = banner;
   if (req.file) {
     const uploadResult = await fileUploader(req.file.path);
@@ -94,9 +85,7 @@ const createFlashDeal = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, populated, "Flash deal created successfully"));
 });
 
-/**
- * Calculate countdown timer from dates
- */
+// Purpose: Calculates countdown timer values from start and end dates
 const calculateCountdown = (startDate, endDate) => {
   const now = new Date();
   const start = new Date(startDate);
@@ -131,9 +120,7 @@ const calculateCountdown = (startDate, endDate) => {
   };
 };
 
-/**
- * Get sold quantity for a product
- */
+// Purpose: Calculates total sold quantity for a product from paid orders
 const getSoldQuantity = async (productId) => {
   const result = await Order.aggregate([
     {
@@ -161,31 +148,23 @@ const getSoldQuantity = async (productId) => {
   return result[0]?.totalSold || 0;
 };
 
-/**
- * Get all active flash deals (public)
- * GET /api/v1/flash-deal
- */
+// Purpose: Retrieves all active flash deals with countdown and stock info
 const getFlashDeals = asyncHandler(async (req, res) => {
   const deals = await getActiveFlashDeals();
 
-  // Format deals for frontend
   const formattedDeals = await Promise.all(
     deals.map(async (deal) => {
       const product = deal.productId;
       if (!product) return null;
 
-      // Calculate prices
       const actualPrice = product.price || 0;
       const discountAmount = (actualPrice * deal.discountPercentage) / 100;
       const discountPrice = actualPrice - discountAmount;
 
-      // Calculate countdown
       const timeLeft = calculateCountdown(deal.startDate, deal.endDate);
 
-      // Get sold quantity
       const sold = await getSoldQuantity(product._id);
 
-      // Calculate left quantity
       const stock = product.availableKeysCount || product.stock || 0;
       const left = Math.max(0, stock - sold);
 
@@ -201,7 +180,7 @@ const getFlashDeals = asyncHandler(async (req, res) => {
         left,
         sold,
         stock,
-        gst: 0, // GST can be added later if needed
+        gst: 0,
         startDate: deal.startDate,
         endDate: deal.endDate,
         isActive: deal.isActive,
@@ -209,7 +188,6 @@ const getFlashDeals = asyncHandler(async (req, res) => {
     })
   );
 
-  // Filter out null values
   const validDeals = formattedDeals.filter((deal) => deal !== null);
 
   return res
@@ -219,10 +197,7 @@ const getFlashDeals = asyncHandler(async (req, res) => {
     );
 });
 
-/**
- * Get flash deal by ID
- * GET /api/v1/flash-deal/:id
- */
+// Purpose: Retrieves a specific flash deal by ID
 const getFlashDealById = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -244,10 +219,7 @@ const getFlashDealById = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, deal, "Flash deal retrieved successfully"));
 });
 
-/**
- * Update flash deal (admin only)
- * PATCH /api/v1/flash-deal/:id
- */
+// Purpose: Updates an existing flash deal configuration
 const updateFlashDeal = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const {
@@ -268,7 +240,6 @@ const updateFlashDeal = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Flash deal not found");
   }
 
-  // Update fields
   if (discountPercentage !== undefined) {
     if (discountPercentage < 1 || discountPercentage > 90) {
       throw new ApiError(400, "Discount percentage must be between 1 and 90");
@@ -285,7 +256,6 @@ const updateFlashDeal = asyncHandler(async (req, res) => {
       throw new ApiError(400, dateValidation.error);
     }
 
-    // Check for overlapping deals (excluding current)
     const hasOverlap = await checkOverlappingFlashDeals(
       flashDeal.productId,
       newStartDate,
@@ -328,10 +298,7 @@ const updateFlashDeal = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, populated, "Flash deal updated successfully"));
 });
 
-/**
- * Delete flash deal (admin only)
- * DELETE /api/v1/flash-deal/:id
- */
+// Purpose: Deletes a flash deal permanently
 const deleteFlashDeal = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -351,12 +318,9 @@ const deleteFlashDeal = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, null, "Flash deal deleted successfully"));
 });
 
-/**
- * Get all flash deals (admin only)
- * GET /api/v1/flash-deal/admin/all
- */
+// Purpose: Retrieves all flash deals for admin with pagination and filters
 const getAllFlashDeals = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20, isActive } = req.query;
+  const { page = 1, limit = 10, isActive } = req.query;
 
   const match = {};
   if (isActive !== undefined) {

@@ -10,10 +10,10 @@ import {
 } from "../services/notification.service.js";
 import mongoose from "mongoose";
 
-// Retrieves user notifications with pagination and optional unread filter
+// Purpose: Retrieves user notifications with pagination and optional unread filter
 const getNotifications = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const { page = 1, limit = 20, unreadOnly = false, type = null } = req.query;
+  const { page = 1, limit = 10, unreadOnly = false, type = null } = req.query;
 
   const result = await getUserNotifications(
     userId,
@@ -28,7 +28,7 @@ const getNotifications = asyncHandler(async (req, res) => {
   );
 });
 
-// Marks a specific notification as read
+// Purpose: Marks a specific notification as read
 const markAsRead = asyncHandler(async (req, res) => {
   const { notificationId } = req.params;
   const userId = req.user._id;
@@ -44,7 +44,7 @@ const markAsRead = asyncHandler(async (req, res) => {
   );
 });
 
-// Marks all user notifications as read
+// Purpose: Marks all user notifications as read
 const markAllAsRead = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
@@ -55,7 +55,7 @@ const markAllAsRead = asyncHandler(async (req, res) => {
   );
 });
 
-// Deletes a specific notification
+// Purpose: Deletes a specific notification
 const deleteNotification = asyncHandler(async (req, res) => {
   const { notificationId } = req.params;
   const userId = req.user._id;
@@ -71,7 +71,7 @@ const deleteNotification = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves count of unread notifications for the user
+// Purpose: Retrieves count of unread notifications for the user
 const getUnreadCount = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 

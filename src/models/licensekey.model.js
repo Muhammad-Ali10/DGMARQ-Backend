@@ -9,8 +9,8 @@ const keyItemSchema = new Schema(
       default: 'other'
     },
     isUsed: { type: Boolean, default: false },
-    isRefunded: { type: Boolean, default: false }, // Mark as refunded permanently
-    refundedAt: Date, // When this key/account was refunded
+    isRefunded: { type: Boolean, default: false },
+    refundedAt: Date,
     assignedTo: { type: Schema.Types.ObjectId, ref: "OrderItem", default: null },
     assignedToOrder: { type: Schema.Types.ObjectId, ref: "Order", default: null },
     assignedAt: Date,
@@ -35,7 +35,7 @@ const licenseKeySchema = new Schema(
   { timestamps: true },
 );
 
-// Note: productId index is created automatically by unique: true, no need for explicit index
 licenseKeySchema.index({ 'keys.isUsed': 1 });
 
+// Purpose: Stores license keys and account credentials linked to products for digital delivery
 export const LicenseKey = mongoose.model("LicenseKey", licenseKeySchema);

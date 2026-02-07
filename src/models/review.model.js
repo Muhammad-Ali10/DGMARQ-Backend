@@ -25,7 +25,6 @@ const reviewSchema = new mongoose.Schema(
     isVerifiedPurchase: { type: Boolean, default: true },
     helpfulCount: { type: Number, default: 0 },
     reportedCount: { type: Number, default: 0 },
-    // Moderation fields
     isModerated: { type: Boolean, default: false },
     moderationStatus: { 
       type: String, 
@@ -40,4 +39,5 @@ const reviewSchema = new mongoose.Schema(
 
 reviewSchema.plugin(mongooseAggregatePaginate);
 
+// Purpose: Stores product reviews and ratings submitted by users
 export const Review = mongoose.model("Review", reviewSchema);

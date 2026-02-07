@@ -9,17 +9,16 @@ import {
 } from "../controller/upcomingrelease.controller.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
+// Purpose: Upcoming release routes for public viewing and admin slot management
+
 const router = express.Router();
 
 router.use(apiRateLimiter);
 
-// Public route
 router.get("/", getUpcomingReleases);
 
-// Admin routes
 router.get("/admin", verifyJWT, authorizeRoles("admin"), getUpcomingReleasesConfig);
 router.put("/slot/:slotNumber", verifyJWT, authorizeRoles("admin"), updateSlot);
 router.put("/slot/:slotNumber/image", verifyJWT, authorizeRoles("admin"), upload.single("backgroundImage"), updateSlotImage);
 
 export default router;
-

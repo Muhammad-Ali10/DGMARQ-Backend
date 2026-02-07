@@ -8,6 +8,8 @@ import {
 } from "../controller/platform.controller.js";
 import { verifyJWT, authorizeRoles, optionalJWT } from "../middlerwares/authmiddlerware.js";
 
+// Purpose: Platform CRUD and status management routes
+
 const router = Router();
 
 router.post(
@@ -38,7 +40,6 @@ router.delete(
   deletePlatform
 );
 
-// Public route - needed for product creation form
 router.get(
   "/get-all-platforms",
   optionalJWT,

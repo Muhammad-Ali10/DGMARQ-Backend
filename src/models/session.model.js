@@ -6,7 +6,6 @@ const sessionSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      index: true,
     },
     token: {
       type: String,
@@ -47,5 +46,6 @@ const sessionSchema = new mongoose.Schema(
 sessionSchema.index({ userId: 1, isActive: 1 });
 sessionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
+// Purpose: Manages user authentication sessions with device tracking
 export const Session = mongoose.model("Session", sessionSchema);
 

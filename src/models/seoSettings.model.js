@@ -5,8 +5,6 @@ const seoSettingsSchema = new Schema(
     page: {
       type: String,
       required: true,
-      unique: true,
-      index: true,
       enum: ['home'],
       default: 'home',
     },
@@ -31,7 +29,7 @@ const seoSettingsSchema = new Schema(
   { timestamps: true }
 );
 
-// Ensure only one document per page
 seoSettingsSchema.index({ page: 1 }, { unique: true });
 
+// Purpose: Stores SEO metadata settings for site pages
 export const SeoSettings = mongoose.model("SeoSettings", seoSettingsSchema);

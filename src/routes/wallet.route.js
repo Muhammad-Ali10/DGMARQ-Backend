@@ -7,12 +7,12 @@ import {
   getWalletTransactionsController,
 } from "../controller/wallet.controller.js";
 
+// Purpose: Wallet routes for balance and transaction retrieval
+
 const router = express.Router();
 
-// Apply rate limiting to all routes
 router.use(apiRateLimiter);
 
-// Customer routes (wallet is purchase-only, no withdrawal)
 router.get("/balance", verifyJWT, authorizeRoles("customer", "admin"), getWalletBalanceController);
 router.get("/transactions", verifyJWT, authorizeRoles("customer", "admin"), getWalletTransactionsController);
 

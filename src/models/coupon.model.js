@@ -26,8 +26,8 @@ const couponSchema = new Schema(
   { timestamps: true },
 )
 
-// Note: code index is created automatically by unique: true, no need for explicit index
 couponSchema.index({ scope: 1, productIds: 1 })
 couponSchema.index({ scope: 1, sellerIds: 1 })
 
+// Purpose: Defines discount coupons with usage limits, scopes, and validity periods
 export const Coupon = mongoose.model("Coupon", couponSchema)

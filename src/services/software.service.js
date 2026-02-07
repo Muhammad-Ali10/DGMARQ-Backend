@@ -6,8 +6,7 @@ import { Platform } from "../models/platform.model.js";
 import cache from "../utils/cache.js";
 import { getTrendingOfferForProduct, calculateTrendingOfferDiscount } from "./trendingoffer.service.js";
 
-// Optimized product fetch for Software page sections
-// Returns only essential fields, uses lean() for speed, limits to 6 products
+// Purpose: Fetches products for Software page sections with optimized fields and sorting
 const fetchSoftwareSection = async (filters, sortBy = { createdAt: -1 }, limit = 6) => {
   const match = {
     status: { $in: ['active', 'approved'] },
@@ -25,7 +24,6 @@ const fetchSoftwareSection = async (filters, sortBy = { createdAt: -1 }, limit =
     .limit(limit)
     .lean();
 
-  // Enrich with trending offers
   const enrichedProducts = await Promise.all(
     products.map(async (product) => {
       const offer = await getTrendingOfferForProduct(product._id);
@@ -48,7 +46,7 @@ const fetchSoftwareSection = async (filters, sortBy = { createdAt: -1 }, limit =
   return enrichedProducts;
 };
 
-// Get category IDs by name pattern (cached)
+// Purpose: Gets category IDs by name pattern with caching
 const getCategoryIdsByName = async (namePatterns) => {
   const cacheKey = `category_ids_${JSON.stringify(namePatterns)}`;
   let categoryIds = cache.get(cacheKey);
@@ -61,13 +59,13 @@ const getCategoryIdsByName = async (namePatterns) => {
     }).select('_id').lean();
     
     categoryIds = categories.map(c => c._id);
-    cache.set(cacheKey, categoryIds, 3600000); // Cache for 1 hour
+    cache.set(cacheKey, categoryIds, 3600000);
   }
   
   return categoryIds;
 };
 
-// Get subcategory IDs by name pattern (cached)
+// Purpose: Gets subcategory IDs by name pattern with caching
 const getSubCategoryIdsByName = async (namePatterns) => {
   const cacheKey = `subcategory_ids_${JSON.stringify(namePatterns)}`;
   let subCategoryIds = cache.get(cacheKey);
@@ -80,13 +78,13 @@ const getSubCategoryIdsByName = async (namePatterns) => {
     }).select('_id').lean();
     
     subCategoryIds = subCategories.map(c => c._id);
-    cache.set(cacheKey, subCategoryIds, 3600000); // Cache for 1 hour
+    cache.set(cacheKey, subCategoryIds, 3600000);
   }
   
   return subCategoryIds;
 };
 
-// Get platform ID by name (cached)
+// Purpose: Gets a single platform ID by exact name match with caching
 const getPlatformIdByName = async (platformName) => {
   const cacheKey = `platform_${platformName.toLowerCase()}`;
   let platformId = cache.get(cacheKey);
@@ -99,14 +97,14 @@ const getPlatformIdByName = async (platformName) => {
     
     if (platform) {
       platformId = platform._id.toString();
-      cache.set(cacheKey, platformId, 3600000); // Cache for 1 hour
+      cache.set(cacheKey, platformId, 3600000);
     }
   }
   
   return platformId ? new mongoose.Types.ObjectId(platformId) : null;
 };
 
-// Get platform IDs by name patterns (cached)
+// Purpose: Gets multiple platform IDs by name patterns with caching
 const getPlatformIdsByName = async (namePatterns) => {
   const cacheKey = `platform_ids_${JSON.stringify(namePatterns)}`;
   let platformIds = cache.get(cacheKey);
@@ -120,23 +118,21 @@ const getPlatformIdsByName = async (namePatterns) => {
     }).select('_id').lean();
     
     platformIds = platforms.map(p => p._id);
-    cache.set(cacheKey, platformIds, 3600000); // Cache for 1 hour
+    cache.set(cacheKey, platformIds, 3600000);
   }
   
   return platformIds;
 };
 
-// Fetch all Software page sections in parallel
+// Purpose: Fetches all Software page sections data in parallel with caching
 export const getSoftwarePageData = async () => {
   const cacheKey = 'software_page_data';
   
-  // Check cache first (2 minute TTL)
   const cached = cache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
-  // Pre-fetch all IDs needed for filtering (in parallel)
   const [microsoftPlatformId, vpnCategoryIds, vpnSubCategoryIds, iosPlatformIds, graphicCategoryIds, graphicSubCategoryIds, antivirusCategoryIds, antivirusSubCategoryIds] = await Promise.all([
     getPlatformIdByName('Microsoft'),
     getCategoryIdsByName(['vpn']),
@@ -148,7 +144,6 @@ export const getSoftwarePageData = async () => {
     getSubCategoryIdsByName(['antivirus', 'security']),
   ]);
 
-  // Build filters for each section
   const vpnFilters = {
     $or: [
       ...(vpnCategoryIds.length > 0 ? [{ categoryId: { $in: vpnCategoryIds } }] : []),
@@ -175,16 +170,13 @@ export const getSoftwarePageData = async () => {
   };
   if (antivirusFilters.$or.length === 0) delete antivirusFilters.$or;
   
-  // Define all section queries
   const queries = {
-    // Trending Offers - products with trending offers, sorted by trending offer discount
     trendingOffers: fetchSoftwareSection(
       {},
       { createdAt: -1 },
       6
     ),
     
-    // Microsoft - products with Microsoft platform
     microsoft: microsoftPlatformId 
       ? fetchSoftwareSection(
           { platform: microsoftPlatformId },
@@ -193,38 +185,31 @@ export const getSoftwarePageData = async () => {
         )
       : Promise.resolve([]),
     
-    // Best Sellers - products sorted by reviewCount and averageRating
     bestSellers: fetchSoftwareSection(
       {},
       { reviewCount: -1, averageRating: -1 },
       6
     ),
     
-    // VPNs - products in VPN category/subcategory
     vpns: Object.keys(vpnFilters).length > 0
       ? fetchSoftwareSection(vpnFilters, { createdAt: -1 }, 6)
       : Promise.resolve([]),
     
-    // iOS Utilities - products for iOS platform
     iosUtilities: Object.keys(iosFilters).length > 0 && !iosFilters._id?.$exists
       ? fetchSoftwareSection(iosFilters, { createdAt: -1 }, 6)
       : Promise.resolve([]),
     
-    // Graphic Design - products in graphic design category
     graphicDesign: Object.keys(graphicFilters).length > 0
       ? fetchSoftwareSection(graphicFilters, { createdAt: -1 }, 6)
       : Promise.resolve([]),
     
-    // Antivirus - products in antivirus/security category
     antivirus: Object.keys(antivirusFilters).length > 0
       ? fetchSoftwareSection(antivirusFilters, { createdAt: -1 }, 6)
       : Promise.resolve([]),
   };
 
-  // Execute all queries in parallel
   const results = await Promise.allSettled(Object.values(queries));
   
-  // Process results
   const data = {
     trendingOffers: results[0].status === 'fulfilled' ? results[0].value : [],
     microsoft: results[1].status === 'fulfilled' ? results[1].value : [],
@@ -235,7 +220,6 @@ export const getSoftwarePageData = async () => {
     antivirus: results[6].status === 'fulfilled' ? results[6].value : [],
   };
 
-  // Cache the result for 2 minutes
   cache.set(cacheKey, data, 120000);
 
   return data;

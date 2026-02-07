@@ -52,5 +52,6 @@ userBehaviorSchema.index({ userId: 1, timestamp: -1 });
 userBehaviorSchema.index({ eventType: 1, timestamp: -1 });
 userBehaviorSchema.index({ entityType: 1, entityId: 1 });
 
+// Purpose: Tracks user activity events for analytics and behavior analysis
 export const UserBehavior = mongoose.model("UserBehavior", userBehaviorSchema);
 

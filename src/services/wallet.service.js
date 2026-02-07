@@ -3,9 +3,7 @@ import { Wallet } from "../models/wallet.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { logger } from "../utils/logger.js";
 
-/**
- * Get or create wallet for a user
- */
+// Purpose: Gets or creates a wallet for a user
 export const getOrCreateWallet = async (userId) => {
   let wallet = await Wallet.findOne({ userId });
   
@@ -21,24 +19,35 @@ export const getOrCreateWallet = async (userId) => {
   return wallet;
 };
 
-/**
- * Get wallet balance for a user
- */
+// Purpose: Gets wallet balance for a user with null safety
 export const getWalletBalance = async (userId) => {
   const wallet = await getOrCreateWallet(userId);
-  return wallet.balance;
+  
+  const balance = wallet.balance || 0;
+  const balanceNumber = typeof balance === 'number' ? balance : parseFloat(balance || 0);
+  
+  logger.debug("Wallet balance retrieved", {
+    userId: userId.toString(),
+    balance: balanceNumber,
+    walletId: wallet._id.toString()
+  });
+  
+  return balanceNumber;
 };
 
-/**
- * Credit amount to user wallet
- */
-export const creditWallet = async (userId, amount, description, metadata = {}) => {
+// Purpose: Credits amount to user wallet with transaction support
+export const creditWallet = async (userId, amount, description, metadata = {}, existingSession = null) => {
   if (amount <= 0) {
     throw new ApiError(400, "Credit amount must be greater than 0");
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  // Use existing session if provided, otherwise create a new one
+  const useExistingSession = existingSession !== null;
+  const session = existingSession || await mongoose.startSession();
+  
+  if (!useExistingSession) {
+    session.startTransaction();
+  }
 
   try {
     const wallet = await Wallet.findOne({ userId }).session(session);
@@ -52,83 +61,178 @@ export const creditWallet = async (userId, amount, description, metadata = {}) =
           type: 'credit',
           amount,
           description,
+          createdAt: new Date(),
           ...metadata,
         }],
       }], { session });
-      await session.commitTransaction();
+      
+      if (!useExistingSession) {
+        await session.commitTransaction();
+      }
       return newWallet[0];
     }
 
-    wallet.balance = (wallet.balance || 0) + amount;
+    const oldBalance = wallet.balance || 0;
+    wallet.balance = oldBalance + amount;
     wallet.transactions.push({
       type: 'credit',
       amount,
       description,
+      createdAt: new Date(),
       ...metadata,
     });
 
     await wallet.save({ session });
-    await session.commitTransaction();
+    
+    await wallet.populate('userId');
+    
+    if (!useExistingSession) {
+      await session.commitTransaction();
+    }
+
+    logger.info("Wallet credited successfully", {
+      userId: userId.toString(),
+      walletId: wallet._id.toString(),
+      oldBalance: oldBalance.toFixed(2),
+      creditAmount: amount.toFixed(2),
+      newBalance: wallet.balance.toFixed(2),
+      description,
+      useExistingSession,
+      transactionId: session.id?.toString() || 'N/A'
+    });
 
     return wallet;
   } catch (error) {
-    await session.abortTransaction();
-    logger.error("Wallet credit failed", error);
+    if (!useExistingSession) {
+      await session.abortTransaction();
+    }
+    logger.error("Wallet credit failed", {
+      userId: userId.toString(),
+      amount: amount.toFixed(2),
+      error: error.message,
+      stack: error.stack
+    });
     throw error;
   } finally {
-    session.endSession();
+    if (!useExistingSession) {
+      session.endSession();
+    }
   }
 };
 
-/**
- * Debit amount from user wallet
- */
-export const debitWallet = async (userId, amount, description, metadata = {}) => {
+// Purpose: Debits amount from user wallet using atomic operations
+export const debitWallet = async (userId, amount, description, metadata = {}, existingSession = null) => {
   if (amount <= 0) {
     throw new ApiError(400, "Debit amount must be greater than 0");
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  // Use existing session if provided, otherwise create a new one
+  const useExistingSession = existingSession !== null;
+  const session = existingSession || await mongoose.startSession();
+  
+  if (!useExistingSession) {
+    session.startTransaction();
+  }
 
   try {
-    const wallet = await Wallet.findOne({ userId }).session(session);
+    let wallet = await Wallet.findOne({ userId }).session(session);
     
     if (!wallet) {
-      throw new ApiError(404, "Wallet not found");
+      // Create wallet with initial balance 0
+      wallet = await Wallet.create([{
+        userId,
+        balance: 0,
+        currency: "USD",
+        transactions: [],
+      }], { session });
+      wallet = wallet[0];
     }
 
     const currentBalance = wallet.balance || 0;
     
     if (currentBalance < amount) {
-      await session.abortTransaction();
+      if (!useExistingSession && session.inTransaction()) {
+        await session.abortTransaction();
+      }
       throw new ApiError(400, `Insufficient wallet balance. Available: $${currentBalance.toFixed(2)}, Required: $${amount.toFixed(2)}`);
     }
 
-    wallet.balance = currentBalance - amount;
-    wallet.transactions.push({
+    const transactionId = new mongoose.Types.ObjectId();
+    const transactionRecord = {
+      _id: transactionId,
       type: 'debit',
       amount,
       description,
+      createdAt: new Date(),
       ...metadata,
+    };
+
+    const updatedWallet = await Wallet.findOneAndUpdate(
+      { userId },
+      {
+        $inc: { balance: -amount },
+        $push: { transactions: transactionRecord },
+      },
+      {
+        session,
+        new: true, // Return updated document
+        runValidators: true,
+      }
+    );
+
+    if (!updatedWallet) {
+      throw new ApiError(500, "Failed to update wallet balance");
+    }
+
+    if (updatedWallet.balance < 0) {
+      await Wallet.findOneAndUpdate(
+        { userId },
+        { $inc: { balance: amount } },
+        { session }
+      );
+      if (!useExistingSession && session.inTransaction()) {
+        await session.abortTransaction();
+      }
+      throw new ApiError(400, `Insufficient wallet balance. Available: $${currentBalance.toFixed(2)}, Required: $${amount.toFixed(2)}`);
+    }
+    
+    if (!useExistingSession) {
+      await session.commitTransaction();
+    }
+
+    logger.info("Wallet debited successfully", {
+      userId: userId.toString(),
+      oldBalance: currentBalance.toFixed(2),
+      debitAmount: amount.toFixed(2),
+      newBalance: updatedWallet.balance.toFixed(2),
+      description,
+      transactionId: transactionId.toString(),
+      useExistingSession,
     });
 
-    await wallet.save({ session });
-    await session.commitTransaction();
-
-    return wallet;
+    return {
+      wallet: updatedWallet,
+      transactionId: transactionId,
+    };
   } catch (error) {
-    await session.abortTransaction();
-    logger.error("Wallet debit failed", error);
+    if (!useExistingSession && session.inTransaction()) {
+      await session.abortTransaction();
+    }
+    logger.error("Wallet debit failed", {
+      userId: userId.toString(),
+      amount: amount.toFixed(2),
+      error: error.message,
+      stack: error.stack
+    });
     throw error;
   } finally {
-    session.endSession();
+    if (!useExistingSession && session && !session.hasEnded) {
+      session.endSession();
+    }
   }
 };
 
-/**
- * Get wallet transactions with pagination
- */
+// Purpose: Gets wallet transactions with pagination for a user
 export const getWalletTransactions = async (userId, page = 1, limit = 20) => {
   const wallet = await Wallet.findOne({ userId });
   

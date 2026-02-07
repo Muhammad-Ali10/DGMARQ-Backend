@@ -2,7 +2,7 @@ import mongoose, { Schema } from "mongoose";
 
 const notificationSchema = new Schema(
   {
-    userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     type: { type: String, enum: ["order", "payout", "refund", "system", "chat", "review"], required: true, index: true },
     title: { type: String, required: true },
     message: { type: String, required: true },
@@ -15,10 +15,8 @@ const notificationSchema = new Schema(
   { timestamps: true },
 )
 
-// Compound indexes for optimized queries
-// For fetching unread notifications by user and type
 notificationSchema.index({ userId: 1, isRead: 1, type: 1 });
-// For fetching notifications sorted by creation date
 notificationSchema.index({ userId: 1, createdAt: -1 });
 
+// Purpose: Stores user notifications for orders, payouts, refunds, and system events
 export const Notification = mongoose.model("Notification", notificationSchema);

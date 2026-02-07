@@ -174,13 +174,71 @@ const getTopProducts = asyncHandler(async (req, res) => {
 
   const { limit = 10 } = req.query;
 
-  const topProducts = await Analytics.find({ salesCount: { $gt: 0 } })
+  // Get top products from Analytics collection
+  const analyticsProducts = await Analytics.find({ salesCount: { $gt: 0 } })
     .populate("productId", "name images price")
     .sort({ salesCount: -1 })
-    .limit(parseInt(limit));
+    .limit(parseInt(limit))
+    .lean();
+
+  // Also get top products from actual order data for accuracy (effective revenue after refunds)
+  const orderBasedProducts = await Order.aggregate([
+    {
+      $match: {
+        paymentStatus: 'paid',
+      },
+    },
+    {
+      $unwind: '$items',
+    },
+    {
+      $group: {
+        _id: '$items.productId',
+        salesCount: { $sum: '$items.qty' },
+        revenue: { $sum: { $subtract: ['$items.lineTotal', { $ifNull: ['$items.refundedAmount', 0] }] } },
+      },
+    },
+    {
+      $lookup: {
+        from: 'products',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'product',
+      },
+    },
+    {
+      $unwind: '$product',
+    },
+    {
+      $project: {
+        productId: '$_id',
+        name: '$product.name',
+        images: '$product.images',
+        price: '$product.price',
+        salesCount: 1,
+        revenue: 1,
+      },
+    },
+    {
+      $sort: { salesCount: -1 },
+    },
+    {
+      $limit: parseInt(limit),
+    },
+  ]);
+
+  // Format response consistently
+  const formattedProducts = orderBasedProducts.map((item) => ({
+    _id: item.productId,
+    productId: { _id: item.productId, name: item.name, images: item.images, price: item.price },
+    name: item.name,
+    sales: item.salesCount,
+    salesCount: item.salesCount,
+    revenue: item.revenue,
+  }));
 
   return res.status(200).json(
-    new ApiResponse(200, topProducts, "Top products retrieved successfully")
+    new ApiResponse(200, formattedProducts, "Top products retrieved successfully")
   );
 });
 
@@ -197,20 +255,62 @@ const getAnalyticsDashboard = asyncHandler(async (req, res) => {
     topProducts,
     categoryAnalytics,
   ] = await Promise.all([
-    Analytics.aggregate([
-      { $group: { _id: null, total: { $sum: "$salesCount" } } },
+    // Get sales count from actual orders (more accurate)
+    Order.aggregate([
+      { $match: { paymentStatus: 'paid' } },
+      { $unwind: '$items' },
+      { $group: { _id: null, total: { $sum: '$items.qty' } } },
     ]),
+    // Get views from Analytics collection
     Analytics.aggregate([
       { $group: { _id: null, total: { $sum: "$viewsCount" } } },
     ]),
+    // Get wishlists from Analytics collection
     Analytics.aggregate([
       { $group: { _id: null, total: { $sum: "$wishlistCount" } } },
     ]),
-    Analytics.find({ salesCount: { $gt: 0 } })
-      .populate("productId", "name images")
-      .sort({ salesCount: -1 })
-      .limit(10)
-      .lean(),
+    // Get top products from actual order data
+    Order.aggregate([
+      {
+        $match: {
+          paymentStatus: 'paid',
+        },
+      },
+      {
+        $unwind: '$items',
+      },
+      {
+        $group: {
+          _id: '$items.productId',
+          salesCount: { $sum: '$items.qty' },
+        },
+      },
+      {
+        $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      {
+        $unwind: '$product',
+      },
+      {
+        $project: {
+          productId: '$_id',
+          name: '$product.name',
+          images: '$product.images',
+          salesCount: 1,
+        },
+      },
+      {
+        $sort: { salesCount: -1 },
+      },
+      {
+        $limit: 10,
+      },
+    ]),
     Analytics.find({ categoryId: { $exists: true } })
       .populate("categoryId", "name")
       .sort({ categorySalesCount: -1 })
@@ -225,7 +325,13 @@ const getAnalyticsDashboard = asyncHandler(async (req, res) => {
         views: totalViews[0]?.total || 0,
         wishlists: totalWishlists[0]?.total || 0,
       },
-      topProducts,
+      topProducts: topProducts.map(item => ({
+        _id: item.productId,
+        productId: { _id: item.productId, name: item.name, images: item.images },
+        name: item.name,
+        sales: item.salesCount,
+        salesCount: item.salesCount,
+      })),
       categoryAnalytics,
     }, "Analytics dashboard retrieved successfully")
   );
@@ -234,15 +340,26 @@ const getAnalyticsDashboard = asyncHandler(async (req, res) => {
 // Retrieves seller's monthly analytics including sales, earnings, and top products
 const getSellerMonthlyAnalytics = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const { month, year } = req.query;
+  const { month, year, startDate: startDateParam, endDate: endDateParam } = req.query;
 
   const seller = await Seller.findOne({ userId });
   if (!seller) {
     throw new ApiError(404, "Seller account not found");
   }
 
-  const startDate = new Date(year || new Date().getFullYear(), (month || new Date().getMonth() + 1) - 1, 1);
-  const endDate = new Date(year || new Date().getFullYear(), month || new Date().getMonth() + 1, 0, 23, 59, 59);
+  // Support both month/year and date range filters
+  let startDate, endDate;
+  if (startDateParam && endDateParam) {
+    startDate = new Date(startDateParam);
+    endDate = new Date(endDateParam);
+    endDate.setHours(23, 59, 59, 999); // End of day
+  } else {
+    // Default to current month if no dates provided
+    const currentYear = year ? parseInt(year) : new Date().getFullYear();
+    const currentMonth = month ? parseInt(month) : new Date().getMonth() + 1;
+    startDate = new Date(currentYear, currentMonth - 1, 1);
+    endDate = new Date(currentYear, currentMonth, 0, 23, 59, 59);
+  }
 
   // Get orders for seller's products in this month
   const orders = await Order.aggregate([
@@ -263,10 +380,20 @@ const getSellerMonthlyAnalytics = asyncHandler(async (req, res) => {
     {
       $group: {
         _id: null,
-        totalSales: { $sum: 1 },
-        totalRevenue: { $sum: '$items.lineTotal' },
+        totalSales: { $sum: '$items.qty' },
+        totalRevenue: { $sum: { $subtract: ['$items.lineTotal', { $ifNull: ['$items.refundedAmount', 0] }] } },
         totalCommission: { $sum: '$items.commissionAmount' },
-        sellerEarnings: { $sum: '$items.sellerEarning' },
+        sellerEarnings: { $sum: { $subtract: ['$items.sellerEarning', { $ifNull: ['$items.refundedSellerAmount', 0] }] } },
+        orderCount: { $addToSet: '$_id' },
+      },
+    },
+    {
+      $project: {
+        totalSales: 1,
+        totalRevenue: 1,
+        totalCommission: 1,
+        sellerEarnings: 1,
+        totalOrders: { $size: '$orderCount' },
       },
     },
   ]);
@@ -290,7 +417,7 @@ const getSellerMonthlyAnalytics = asyncHandler(async (req, res) => {
       $group: {
         _id: '$items.productId',
         salesCount: { $sum: '$items.qty' },
-        revenue: { $sum: '$items.lineTotal' },
+        revenue: { $sum: { $subtract: ['$items.lineTotal', { $ifNull: ['$items.refundedAmount', 0] }] } },
       },
     },
     {
@@ -342,6 +469,59 @@ const getSellerMonthlyAnalytics = asyncHandler(async (req, res) => {
     totalRevenue: 0,
     totalCommission: 0,
     sellerEarnings: 0,
+    totalOrders: 0,
+  };
+
+  // Get product counts for the seller
+  const totalProducts = await Product.countDocuments({ sellerId: seller._id });
+  const activeProducts = await Product.countDocuments({ 
+    sellerId: seller._id, 
+    status: 'active' 
+  });
+
+  // Calculate average order value
+  const averageOrderValue = stats.totalSales > 0 
+    ? stats.totalRevenue / stats.totalSales 
+    : 0;
+
+  // Get all-time totals for comparison
+  const allTimeStats = await Order.aggregate([
+    {
+      $match: {
+        paymentStatus: 'paid',
+      },
+    },
+    {
+      $unwind: '$items',
+    },
+    {
+      $match: {
+        'items.sellerId': new mongoose.Types.ObjectId(seller._id),
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        totalSales: { $sum: '$items.qty' },
+        totalRevenue: { $sum: { $subtract: ['$items.lineTotal', { $ifNull: ['$items.refundedAmount', 0] }] } },
+        totalEarnings: { $sum: { $subtract: ['$items.sellerEarning', { $ifNull: ['$items.refundedSellerAmount', 0] }] } },
+        orderCount: { $addToSet: '$_id' },
+      },
+    },
+    {
+      $project: {
+        totalSales: 1,
+        totalRevenue: 1,
+        totalEarnings: 1,
+        totalOrders: { $size: '$orderCount' },
+      },
+    },
+  ]);
+
+  const allTime = allTimeStats[0] || {
+    totalSales: 0,
+    totalRevenue: 0,
+    totalEarnings: 0,
   };
 
   return res.status(200).json(
@@ -352,6 +532,21 @@ const getSellerMonthlyAnalytics = asyncHandler(async (req, res) => {
         startDate,
         endDate,
       },
+      // Period-specific stats
+      totalRevenue: stats.totalRevenue,
+      totalSales: stats.totalSales,
+      totalOrders: stats.totalOrders || 0,
+      netEarnings: stats.sellerEarnings,
+      totalCommission: stats.totalCommission,
+      averageOrderValue,
+      // All-time totals
+      allTimeRevenue: allTime.totalRevenue,
+      allTimeSales: allTime.totalSales,
+      allTimeEarnings: allTime.totalEarnings,
+      // Product stats
+      totalProducts,
+      activeProducts,
+      // Additional data
       sales: {
         total: stats.totalSales,
         revenue: stats.totalRevenue,

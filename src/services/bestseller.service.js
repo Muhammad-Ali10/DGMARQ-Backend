@@ -5,11 +5,7 @@ import { Review } from "../models/review.model.js";
 import { Seller } from "../models/seller.model.js";
 import { logger } from "../utils/logger.js";
 
-/**
- * Calculate seller performance score based on reviews
- * Formula: (averageRating * 0.7) + (normalizedReviewCount * 0.3)
- * This gives weight to both rating quality and review volume
- */
+// Purpose: Calculates seller performance score based on reviews using weighted rating and volume
 const calculateSellerScore = (averageRating, reviewCount, maxReviewCount) => {
   const normalizedReviewCount = maxReviewCount > 0 
     ? Math.min(reviewCount / maxReviewCount, 1) 
@@ -18,13 +14,9 @@ const calculateSellerScore = (averageRating, reviewCount, maxReviewCount) => {
   return (averageRating * 0.7) + (normalizedReviewCount * 0.3);
 };
 
-/**
- * Auto-generate best sellers based on seller review performance
- * Selects top 6 sellers and picks 1 best product from each
- */
+// Purpose: Auto-generates best sellers based on seller review performance selecting top 6 sellers
 export const generateBestSellers = async () => {
   try {
-    // Step 1: Aggregate reviews per seller through products
     const sellerReviewStats = await Review.aggregate([
       {
         $lookup: {
@@ -39,7 +31,7 @@ export const generateBestSellers = async () => {
       },
       {
         $match: {
-          "product.status": { $in: ["active", "approved"] }, // Include both active and approved products
+          "product.status": { $in: ["active", "approved"] },
           isHidden: false,
           $or: [
             { moderationStatus: "approved" },
@@ -58,7 +50,7 @@ export const generateBestSellers = async () => {
       },
       {
         $match: {
-          reviewCount: { $gte: 1 }, // At least 1 review
+          reviewCount: { $gte: 1 },
         },
       },
     ]);
@@ -68,13 +60,11 @@ export const generateBestSellers = async () => {
       return { success: false, message: "No seller review data available" };
     }
 
-    // Step 2: Find max review count for normalization
     const maxReviewCount = Math.max(
       ...sellerReviewStats.map((s) => s.reviewCount),
       1
     );
 
-    // Step 3: Calculate scores and sort sellers
     const sellerScores = sellerReviewStats
       .map((seller) => ({
         sellerId: seller._id,
@@ -89,7 +79,6 @@ export const generateBestSellers = async () => {
       .sort((a, b) => b.score - a.score)
       .slice(0, 6); // Top 6 sellers
 
-    // Step 4: Verify sellers are active
     const activeSellerIds = sellerScores.map((s) => s.sellerId);
     const activeSellers = await Seller.find({
       _id: { $in: activeSellerIds },
@@ -100,7 +89,6 @@ export const generateBestSellers = async () => {
       activeSellers.map((s) => s._id.toString())
     );
 
-    // Step 5: For each top seller, find their best product
     const bestSellerProducts = [];
 
     for (const sellerScore of sellerScores) {
@@ -108,11 +96,10 @@ export const generateBestSellers = async () => {
         continue;
       }
 
-      // Find the best product for this seller (highest rating, must be active/approved)
       const bestProduct = await Product.findOne({
         sellerId: sellerScore.sellerId,
-        status: { $in: ["active", "approved"] }, // Include both active and approved products
-        stock: { $gt: 0 }, // Must have stock
+        status: { $in: ["active", "approved"] },
+        stock: { $gt: 0 },
       })
         .sort({ averageRating: -1, reviewCount: -1 })
         .select("_id averageRating");
@@ -131,7 +118,6 @@ export const generateBestSellers = async () => {
       return { success: false, message: "No valid products found" };
     }
 
-    // Step 6: Clear old best sellers and insert new ones
     await BestSeller.deleteMany({});
     
     const bestSellerDocs = bestSellerProducts.map((bs) => ({
@@ -158,15 +144,13 @@ export const generateBestSellers = async () => {
   }
 };
 
-/**
- * Get best sellers for home page (6 products)
- */
+// Purpose: Retrieves best sellers for home page display limited to 6 products
 export const getHomePageBestSellers = async () => {
   return await BestSeller.find({})
     .populate({
       path: "productId",
       select: "name slug images price discount stock averageRating reviewCount status region platform",
-      match: { status: { $in: ["active", "approved"] } }, // Include both active and approved products
+      match: { status: { $in: ["active", "approved"] } },
       populate: [
         {
           path: "region",
@@ -188,9 +172,7 @@ export const getHomePageBestSellers = async () => {
     .lean();
 };
 
-/**
- * Get paginated best sellers for best sellers page
- */
+// Purpose: Retrieves paginated best sellers for the best sellers page
 export const getPaginatedBestSellers = async (page = 1, limit = 12) => {
   const skip = (page - 1) * limit;
 
@@ -199,7 +181,7 @@ export const getPaginatedBestSellers = async (page = 1, limit = 12) => {
       .populate({
         path: "productId",
         select: "name slug images price discount stock averageRating reviewCount status categoryId region platform",
-        match: { status: { $in: ["active", "approved"] } }, // Include both active and approved products
+        match: { status: { $in: ["active", "approved"] } },
         populate: [
           {
             path: "region",
@@ -223,7 +205,6 @@ export const getPaginatedBestSellers = async (page = 1, limit = 12) => {
     BestSeller.countDocuments({}),
   ]);
 
-  // Filter out any null products (inactive products won't populate)
   const validBestsellers = bestsellers.filter(
     (bs) => bs.productId && bs.sellerId
   );

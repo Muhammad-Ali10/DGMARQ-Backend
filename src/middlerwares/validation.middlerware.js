@@ -1,12 +1,9 @@
 import { validationResult, body, param, query } from 'express-validator';
 import { ApiError } from '../utils/ApiError.js';
 
-/**
- * Validation middleware wrapper
- */
+// Purpose: Runs validations and throws ApiError if validation fails
 export const validate = (validations) => {
   return async (req, res, next) => {
-    // Run all validations
     await Promise.all(validations.map(validation => validation.run(req)));
 
     const errors = validationResult(req);
@@ -23,20 +20,22 @@ export const validate = (validations) => {
   };
 };
 
-// Common validation rules
+// Purpose: Validates MongoDB ObjectId format in URL params
 export const mongoIdValidation = (field = 'id') => {
   return param(field).isMongoId().withMessage(`Invalid ${field} format`);
 };
 
-// MongoDB ID validation for request body
+// Purpose: Validates MongoDB ObjectId format in request body
 export const mongoIdBodyValidation = (field = 'id') => {
   return body(field).isMongoId().withMessage(`Invalid ${field} format`);
 };
 
+// Purpose: Validates and normalizes email format
 export const emailValidation = () => {
   return body('email').isEmail().normalizeEmail().withMessage('Invalid email format');
 };
 
+// Purpose: Validates password meets minimum security requirements
 export const passwordValidation = () => {
   return body('password')
     .isLength({ min: 6 })
@@ -45,25 +44,28 @@ export const passwordValidation = () => {
     .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number');
 };
 
+// Purpose: Validates rating is an integer between 1 and 5
 export const ratingValidation = () => {
   return body('rating')
+    .toInt()
     .isInt({ min: 1, max: 5 })
     .withMessage('Rating must be between 1 and 5');
 };
 
+// Purpose: Validates price is a positive number
 export const priceValidation = () => {
   return body('price')
     .isFloat({ min: 0.01 })
     .withMessage('Price must be a positive number');
 };
 
+// Purpose: Validates quantity is a positive integer
 export const quantityValidation = () => {
   return body('qty')
     .isInt({ min: 1 })
     .withMessage('Quantity must be a positive integer');
 };
 
-// Validation rules for specific endpoints
 export const registerValidation = [
   body('name').trim().isLength({ min: 2, max: 50 }).withMessage('Name must be between 2 and 50 characters'),
   emailValidation(),
@@ -94,9 +96,22 @@ export const createCheckoutValidation = [
   body('couponCode').optional().trim().isLength({ min: 3, max: 20 }).withMessage('Invalid coupon code format'),
 ];
 
+export const createGuestCheckoutValidation = [
+  body('guestEmail').trim().isEmail().normalizeEmail().withMessage('Valid email is required for guest checkout'),
+  body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
+  body('items.*.productId').isMongoId().withMessage('Invalid productId'),
+  body('items.*.qty').optional().isInt({ min: 1 }).toInt().withMessage('Quantity must be at least 1'),
+  body('couponCode').optional().trim().isLength({ min: 1, max: 50 }).withMessage('Invalid coupon code format'),
+];
+
 export const sendMessageValidation = [
   body('conversationId').isMongoId().withMessage('Invalid conversation ID'),
   body('messageText').trim().isLength({ min: 1, max: 2000 }).withMessage('Message must be between 1 and 2000 characters'),
   body('messageType').optional().isIn(['text', 'image', 'file']).withMessage('Invalid message type'),
+];
+
+export const sendImageMessageValidation = [
+  body('conversationId').isMongoId().withMessage('Invalid conversation ID'),
+  body('messageText').optional().trim().isLength({ max: 2000 }).withMessage('Message must be at most 2000 characters'),
 ];
 

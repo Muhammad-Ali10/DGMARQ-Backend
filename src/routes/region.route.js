@@ -8,6 +8,8 @@ import {
 } from "../controller/region.controller.js";
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 
+// Purpose: Region CRUD operations for geographic data management
+
 const router = Router();
 router
   .route("/create-region")

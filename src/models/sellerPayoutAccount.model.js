@@ -17,14 +17,10 @@ const sellerPayoutAccountSchema = new Schema(
     accountIdentifier: {
       type: String,
       required: true,
-      // For PayPal: email (encrypted)
-      // For Bank: account number (encrypted)
-      // For Platform: platform-specific identifier
     },
     encryptedAccountIdentifier: {
       type: String,
       required: true,
-      // Encrypted version of accountIdentifier (AES-256-GCM)
     },
     provider: {
       type: String,
@@ -39,11 +35,9 @@ const sellerPayoutAccountSchema = new Schema(
     },
     accountName: {
       type: String,
-      // Account holder name (for bank accounts)
     },
     bankName: {
       type: String,
-      // Bank name (for bank accounts)
     },
     verifiedAt: {
       type: Date,
@@ -82,5 +76,6 @@ const sellerPayoutAccountSchema = new Schema(
 sellerPayoutAccountSchema.index({ sellerId: 1, status: 1 });
 sellerPayoutAccountSchema.index({ provider: 1, status: 1 });
 
+// Purpose: Stores seller payout account details for payment disbursement
 export const SellerPayoutAccount = mongoose.model("SellerPayoutAccount", sellerPayoutAccountSchema);
 

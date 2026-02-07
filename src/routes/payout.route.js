@@ -10,10 +10,9 @@ import {
   getPayoutReports,
 } from "../controller/payout.controller.js";
 
-const router = Router();
+// Purpose: Payout routes for sellers to manage earnings and request payouts
 
-// IMPORTANT: Specific routes must come BEFORE parameterized routes (/:payoutId)
-// Otherwise, routes like /reports will be matched as /:payoutId with payoutId="reports"
+const router = Router();
 
 router
   .route("/my-payouts")
@@ -39,7 +38,6 @@ router
   .route("/reports")
   .get(verifyJWT, authorizeRoles("seller"), getPayoutReports);
 
-// Parameterized route must come LAST
 router
   .route("/:payoutId")
   .get(verifyJWT, authorizeRoles("seller"), getPayoutDetails);

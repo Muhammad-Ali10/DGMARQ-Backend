@@ -28,8 +28,8 @@ const bestSellerSchema = new Schema(
   { timestamps: true },
 )
 
-// Compound index for efficient queries
 bestSellerSchema.index({ sellerId: 1, generatedAt: -1 });
 bestSellerSchema.index({ calculatedRating: -1, generatedAt: -1 });
 
+// Purpose: Stores calculated bestseller rankings for products by seller
 export const BestSeller = mongoose.model("BestSeller", bestSellerSchema)

@@ -8,10 +8,10 @@ import { logger } from '../utils/logger.js';
 import mongoose from 'mongoose';
 import nodemailer from 'nodemailer';
 
-const LOW_STOCK_THRESHOLD = 10; // Notify when stock is below this
+const LOW_STOCK_THRESHOLD = 10;
 const OUT_OF_STOCK_THRESHOLD = 0;
 
-// Email transporter (same as email.service.js)
+// Purpose: Creates and configures an email transporter using SMTP settings
 const createTransporter = () => {
   if (process.env.SMTP_HOST) {
     return nodemailer.createTransport({
@@ -34,7 +34,7 @@ const createTransporter = () => {
   });
 };
 
-// Checks product stock and notifies seller if stock is low or out
+// Purpose: Checks product stock and notifies seller if stock is low or out
 export const checkAndNotifyLowStock = async (productId) => {
   const product = await Product.findById(productId).populate('sellerId');
   if (!product) {
@@ -52,8 +52,6 @@ export const checkAndNotifyLowStock = async (productId) => {
   product.availableKeysCount = availableKeys;
   product.stock = availableKeys;
 
-  // Note: Check for both 'active' and 'approved' status for consistency
-  // Empty block left for future implementation if needed
   if (availableKeys === 0 && ['active', 'approved'].includes(product.status)) {
   }
 
@@ -176,7 +174,7 @@ export const checkAndNotifyLowStock = async (productId) => {
   };
 };
 
-// Checks stock status after a license key is assigned
+// Purpose: Checks stock status after a license key is assigned to an order
 export const checkStockAfterAssignment = async (productId) => {
   return await checkAndNotifyLowStock(productId);
 };

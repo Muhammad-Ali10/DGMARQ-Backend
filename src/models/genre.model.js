@@ -13,4 +13,6 @@ const schema = new mongoose.Schema(
 )
 
 schema.plugin(mongooseAggregatePaginate);
+
+// Purpose: Stores game genre categories for product classification
 export const Genre = mongoose.model("Genre", schema)

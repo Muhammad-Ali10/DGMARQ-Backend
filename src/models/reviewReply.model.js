@@ -36,5 +36,6 @@ const reviewReplySchema = new mongoose.Schema(
 
 reviewReplySchema.index({ reviewId: 1, createdAt: -1 });
 
+// Purpose: Stores replies to product reviews from users or sellers
 export const ReviewReply = mongoose.model("ReviewReply", reviewReplySchema);
 

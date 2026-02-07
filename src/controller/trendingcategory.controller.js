@@ -6,17 +6,12 @@ import { TrendingCategory } from "../models/trendingcategory.model.js";
 import { Category } from "../models/category.model.js";
 import { getTrendingCategories, updateTrendingCategories } from "../services/trendingcategory.service.js";
 
-/**
- * Get trending categories (public)
- * GET /api/v1/trending-category
- * Returns only precomputed trending categories based on real sales data
- */
+// Purpose: Retrieves trending categories based on real sales data
 const getTrendingCategoriesHandler = asyncHandler(async (req, res) => {
   const { limit = 6 } = req.query;
 
   const categories = await getTrendingCategories(parseInt(limit));
 
-  // Format response to include category details
   const formattedCategories = categories.map(tc => ({
     _id: tc._id,
     category: tc.categoryId,
@@ -30,10 +25,7 @@ const getTrendingCategoriesHandler = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get trending category by ID
- * GET /api/v1/trending-category/:id
- */
+// Purpose: Retrieves trending category by ID
 const getTrendingCategoryById = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -53,16 +45,7 @@ const getTrendingCategoryById = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Update trending categories (admin only - manual trigger for monthly recalculation)
- * POST /api/v1/trending-category/update
- * 
- * This endpoint recalculates trending categories based on current month's sales data.
- * Should be called monthly via cron job or manually by admin.
- * 
- * NOTE: This is fully automated - admin cannot manually select categories.
- * Categories are determined solely by sales performance.
- */
+// Purpose: Recalculates trending categories based on current sales data for admin
 const updateTrendingCategoriesHandler = asyncHandler(async (req, res) => {
   const result = await updateTrendingCategories();
 
@@ -71,12 +54,9 @@ const updateTrendingCategoriesHandler = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get all trending categories (admin only)
- * GET /api/v1/trending-category/admin/all
- */
+// Purpose: Retrieves all trending categories with pagination for admin
 const getAllTrendingCategories = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20 } = req.query;
+  const { page = 1, limit = 10 } = req.query;
 
   const skip = (parseInt(page) - 1) * parseInt(limit);
 

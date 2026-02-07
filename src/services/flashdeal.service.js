@@ -3,22 +3,18 @@ import { Product } from '../models/product.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import mongoose from 'mongoose';
 
-/**
- * Get active flash deals (including upcoming ones)
- */
+// Purpose: Retrieves active flash deals including upcoming ones sorted by start date
 export const getActiveFlashDeals = async () => {
   const now = new Date();
   return await FlashDeal.find({
     isActive: true,
-    endDate: { $gte: now }, // Include deals that haven't ended yet (active or upcoming)
+    endDate: { $gte: now },
   })
     .populate('productId', 'name slug price images stock availableKeysCount')
-    .sort({ startDate: 1, createdAt: -1 }); // Sort by start date, then creation date
+    .sort({ startDate: 1, createdAt: -1 });
 };
 
-/**
- * Check if product has active flash deal
- */
+// Purpose: Checks if a product has an active flash deal and returns it
 export const getProductFlashDeal = async (productId) => {
   const now = new Date();
   return await FlashDeal.findOne({
@@ -29,9 +25,7 @@ export const getProductFlashDeal = async (productId) => {
   }).populate('productId');
 };
 
-/**
- * Calculate flash deal price
- */
+// Purpose: Calculates the discounted price for a product with a flash deal
 export const calculateFlashDealPrice = async (productId, originalPrice) => {
   const flashDeal = await getProductFlashDeal(productId);
   if (!flashDeal) {
@@ -55,9 +49,7 @@ export const calculateFlashDealPrice = async (productId, originalPrice) => {
   };
 };
 
-/**
- * Validate flash deal dates
- */
+// Purpose: Validates flash deal start and end dates for correctness
 export const validateFlashDealDates = (startDate, endDate) => {
   const start = new Date(startDate);
   const end = new Date(endDate);
@@ -74,9 +66,7 @@ export const validateFlashDealDates = (startDate, endDate) => {
   return { valid: true };
 };
 
-/**
- * Check for overlapping flash deals
- */
+// Purpose: Checks for overlapping flash deals on a product within a date range
 export const checkOverlappingFlashDeals = async (productId, startDate, endDate, excludeId = null) => {
   const query = {
     productId: new mongoose.Types.ObjectId(productId),

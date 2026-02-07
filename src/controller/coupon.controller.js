@@ -83,7 +83,7 @@ const getAllCoupons = asyncHandler(async (req, res) => {
     throw new ApiError(403, "Only admins can view all coupons");
   }
 
-  const { page = 1, limit = 20, isActive } = req.query;
+  const { page = 1, limit = 10, isActive } = req.query;
 
   const match = {};
   if (isActive !== undefined) {

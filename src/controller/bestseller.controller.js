@@ -9,17 +9,13 @@ import {
 } from "../services/bestseller.service.js";
 import { BestSeller } from "../models/bestseller.model.js";
 
-/**
- * Get bestsellers - optimized for home page (6 products) or paginated list
- */
+// Purpose: Retrieves bestsellers for home page display or paginated list
 const getBestsellers = asyncHandler(async (req, res) => {
   const { page, limit = 12, forHome = "false" } = req.query;
 
-  // For home page: return only 6 products
   if (forHome === "true") {
     const bestsellers = await getHomePageBestSellers();
     
-    // Filter out any null products (inactive products won't populate)
     const validBestsellers = bestsellers.filter(
       (bs) => bs.productId && bs.sellerId
     );
@@ -33,7 +29,6 @@ const getBestsellers = asyncHandler(async (req, res) => {
     );
   }
 
-  // For best sellers page: return paginated results
   const pageNum = parseInt(page) || 1;
   const limitNum = parseInt(limit) || 12;
 
@@ -48,9 +43,7 @@ const getBestsellers = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get bestseller by product ID
- */
+// Purpose: Retrieves a specific bestseller entry by product ID
 const getBestsellerByProduct = asyncHandler(async (req, res) => {
   const { productId } = req.params;
 
@@ -84,10 +77,7 @@ const getBestsellerByProduct = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Manually trigger best seller generation (admin only - for initial setup/testing)
- * Note: This is NOT for manual selection, only for triggering auto-generation
- */
+// Purpose: Manually triggers automatic bestseller generation for admin use
 const triggerBestSellerGeneration = asyncHandler(async (req, res) => {
   if (!req.user?.roles?.includes("admin")) {
     throw new ApiError(403, "Only admins can trigger best seller generation");

@@ -57,8 +57,21 @@ const sellerSchema = new mongoose.Schema({
         type: Boolean,
         default: true
     },
+    // PayPal OAuth onboarding (no manual email)
+    paypalMerchantId: { type: String, default: null },
+    paypalEmail: { type: String, default: null },
+    paypalVerified: { type: Boolean, default: false },
+    paypalOAuthConnected: { type: Boolean, default: false },
+    paymentsReceivable: { type: Boolean, default: false },
+    accountStatus: { type: String, enum: ['verified', 'unverified', 'limited'], default: null },
+    oauthConnectedAt: { type: Date, default: null },
+    accountBlocked: { type: Boolean, default: false },
+    availableBalance: { type: Number, default: 0 },
+    pendingBalance: { type: Number, default: 0 },
+    lastPayoutAttempt: { type: Date, default: null },
 }, { timestamps: true });
 
 sellerSchema.plugin(mongooseAggregatePaginate)
 
+// Purpose: Represents a seller account with shop details and payout settings
 export const Seller = mongoose.model("Seller", sellerSchema)

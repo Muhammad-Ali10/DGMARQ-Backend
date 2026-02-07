@@ -10,5 +10,5 @@ const wishlistSchema = new Schema({
   ]
 });
 
-
+// Purpose: Stores user wishlists containing saved products for future purchase
 export const Wishlist = mongoose.model("Wishlist", wishlistSchema)

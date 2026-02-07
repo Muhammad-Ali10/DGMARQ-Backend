@@ -13,10 +13,7 @@ import {
   updateAllOfferStatuses,
 } from "../services/trendingoffer.service.js";
 
-/**
- * Create trending offer (admin only)
- * POST /api/v1/trending-offer
- */
+// Purpose: Creates a trending offer with product and date validation for admin
 const createTrendingOffer = asyncHandler(async (req, res) => {
   const { products, discountPercent, startTime, endTime } = req.body;
 
@@ -32,13 +29,11 @@ const createTrendingOffer = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Start time and end time are required");
   }
 
-  // Validate all product IDs
   const validProductIds = products.filter(id => mongoose.Types.ObjectId.isValid(id));
   if (validProductIds.length !== products.length) {
     throw new ApiError(400, "Invalid product ID(s) provided");
   }
 
-  // Validate products exist and are active/approved
   const existingProducts = await Product.find({
     _id: { $in: validProductIds.map(id => new mongoose.Types.ObjectId(id)) },
     status: { $in: ['active', 'approved'] },
@@ -48,19 +43,16 @@ const createTrendingOffer = asyncHandler(async (req, res) => {
     throw new ApiError(404, "One or more products not found or not active");
   }
 
-  // Validate dates
   const dateValidation = validateOfferDates(startTime, endTime);
   if (!dateValidation.valid) {
     throw new ApiError(400, dateValidation.error);
   }
 
-  // Check for overlapping offers on any of the products
   const hasOverlap = await checkOverlappingProductOffers(validProductIds, startTime, endTime);
   if (hasOverlap) {
     throw new ApiError(400, "One or more products already have an active trending offer in this date range");
   }
 
-  // Determine initial status
   const now = new Date();
   let status = 'scheduled';
   if (new Date(startTime) <= now && new Date(endTime) >= now) {
@@ -85,10 +77,7 @@ const createTrendingOffer = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get all active trending offers (public)
- * GET /api/v1/trending-offer
- */
+// Purpose: Retrieves all active trending offers for public access
 const getTrendingOffers = asyncHandler(async (req, res) => {
   const offers = await getActiveTrendingOffers();
 
@@ -97,10 +86,7 @@ const getTrendingOffers = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get trending offer by ID
- * GET /api/v1/trending-offer/:id
- */
+// Purpose: Retrieves trending offer by ID
 const getTrendingOfferById = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -120,10 +106,7 @@ const getTrendingOfferById = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get trending offer for a specific product
- * GET /api/v1/trending-offer/product/:productId
- */
+// Purpose: Retrieves trending offer for a specific product
 const getOfferByProduct = asyncHandler(async (req, res) => {
   const { productId } = req.params;
 
@@ -147,10 +130,7 @@ const getOfferByProduct = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Update trending offer (admin only)
- * PATCH /api/v1/trending-offer/:id
- */
+// Purpose: Updates trending offer with validation for admin
 const updateTrendingOffer = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { products, discountPercent, startTime, endTime, status } = req.body;
@@ -164,7 +144,6 @@ const updateTrendingOffer = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Trending offer not found");
   }
 
-  // Update products if provided
   if (products !== undefined) {
     if (!Array.isArray(products) || products.length === 0) {
       throw new ApiError(400, "At least one product is required");
@@ -175,7 +154,6 @@ const updateTrendingOffer = asyncHandler(async (req, res) => {
       throw new ApiError(400, "Invalid product ID(s) provided");
     }
 
-    // Validate products exist and are active/approved
     const existingProducts = await Product.find({
       _id: { $in: validProductIds.map(id => new mongoose.Types.ObjectId(id)) },
       status: { $in: ['active', 'approved'] },
@@ -188,7 +166,6 @@ const updateTrendingOffer = asyncHandler(async (req, res) => {
     offer.products = validProductIds.map(id => new mongoose.Types.ObjectId(id));
   }
 
-  // Update discount percent
   if (discountPercent !== undefined) {
     if (discountPercent < 0 || discountPercent > 100) {
       throw new ApiError(400, "Discount percent must be between 0 and 100");
@@ -196,7 +173,6 @@ const updateTrendingOffer = asyncHandler(async (req, res) => {
     offer.discountPercent = parseFloat(discountPercent);
   }
 
-  // Update dates
   if (startTime || endTime) {
     const newStartTime = startTime ? new Date(startTime) : offer.startTime;
     const newEndTime = endTime ? new Date(endTime) : offer.endTime;
@@ -206,7 +182,6 @@ const updateTrendingOffer = asyncHandler(async (req, res) => {
       throw new ApiError(400, dateValidation.error);
     }
 
-    // Check for overlapping offers (excluding current)
     const productIds = offer.products.map(p => p.toString());
     const hasOverlap = await checkOverlappingProductOffers(
       productIds,
@@ -222,14 +197,12 @@ const updateTrendingOffer = asyncHandler(async (req, res) => {
     offer.endTime = newEndTime;
   }
 
-  // Update status if provided
   if (status !== undefined) {
     if (!['active', 'expired', 'scheduled'].includes(status)) {
       throw new ApiError(400, "Invalid status. Must be one of: active, expired, scheduled");
     }
     offer.status = status;
   } else {
-    // Auto-update status based on dates
     await updateOfferStatus(offer._id);
     await offer.populate('products');
   }
@@ -242,10 +215,7 @@ const updateTrendingOffer = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Delete trending offer (admin only)
- * DELETE /api/v1/trending-offer/:id
- */
+// Purpose: Deletes a trending offer by ID for admin
 const deleteTrendingOffer = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -265,12 +235,9 @@ const deleteTrendingOffer = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get all trending offers (admin only)
- * GET /api/v1/trending-offer/admin/all
- */
+// Purpose: Retrieves all trending offers with pagination for admin
 const getAllTrendingOffers = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20, status } = req.query;
+  const { page = 1, limit = 10, status } = req.query;
 
   const match = {};
   if (status !== undefined) {
@@ -300,10 +267,7 @@ const getAllTrendingOffers = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Update all offer statuses (admin only, can be called via cron)
- * POST /api/v1/trending-offer/admin/update-statuses
- */
+// Purpose: Updates all offer statuses based on current time for admin
 const updateAllStatuses = asyncHandler(async (req, res) => {
   await updateAllOfferStatuses();
 

@@ -18,5 +18,6 @@ const type = new mongoose.Schema(
 )
 
 type.plugin(mongooseAggregatePaginate);
+// Purpose: Represents product types for classification and filtering
 export const Type = mongoose.model("Type", type)
  

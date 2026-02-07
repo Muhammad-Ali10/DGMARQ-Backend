@@ -7,7 +7,7 @@ import {
 } from "../controller/genre.controller.js";
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 
- 
+// Purpose: Genre CRUD routes for admin management and public listing
 
 const router = Router();
 router

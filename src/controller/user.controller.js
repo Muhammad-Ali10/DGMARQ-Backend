@@ -13,7 +13,7 @@ import nodemailer from "nodemailer";
 
 
 
-// Generates access and refresh tokens for a user and stores the hashed refresh token
+// Purpose: Generates access and refresh tokens for a user and stores the hashed refresh token
 const generateRefreshTokenAndAccessToken = async (userid) => {
 
     const user = await User.findById(userid).select('-password -refreshToken')
@@ -35,7 +35,7 @@ const generateRefreshTokenAndAccessToken = async (userid) => {
 
 
 
-// Registers a new user with optional profile image upload
+// Purpose: Registers a new user with optional profile image upload
 const registerUser = asyncHandler(async (req, res) => {
 
     const { name, email, password, roles } = req.body
@@ -77,7 +77,7 @@ const registerUser = asyncHandler(async (req, res) => {
 })
 
 
-// Authenticates user and returns access/refresh tokens with seller information
+// Purpose: Authenticates user and returns access/refresh tokens with seller information
 const loginUser = asyncHandler(async (req, res) => {
 
     const { email, password } = req.body
@@ -148,10 +148,8 @@ const loginUser = asyncHandler(async (req, res) => {
         }
     ]);
 
-    // Extract the first element from aggregation result (should always be one user)
     const userData = userAsSeller && userAsSeller.length > 0 ? userAsSeller[0] : null;
 
-    // If aggregation didn't return a result, fallback to basic user data
     if (!userData) {
         throw new ApiError(500, "Failed to retrieve user data");
     }
@@ -176,7 +174,7 @@ const loginUser = asyncHandler(async (req, res) => {
 })
 
 
-// Refreshes access token using a valid refresh token
+// Purpose: Refreshes access token using a valid refresh token
 const refreshAccessToken = asyncHandler(async (req, res) => {
 
     const incomingRefreshToken = (req.cookies?.refreshToken) || (req.body?.refreshToken);
@@ -223,20 +221,19 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 })
 
 
-// Logs out user by clearing refresh token and cookies
+// Purpose: Logs out user by clearing refresh token and cookies
 const logoutUser = asyncHandler(async (req, res) => {
 
-    const user = await User.findById(req.user._id)
+    if (req.user && req.user._id) {
+        const user = await User.findById(req.user._id)
 
-    if (!user) {
-        throw new ApiError(404, "User not found")
+        if (user) {
+            user.refreshToken = undefined
+            await user.save({
+                validateBeforeSave: true
+            })
+        }
     }
-
-    user.refreshToken = undefined
-
-    await user.save({
-        validateBeforeSave: true
-    })
 
     const opition = {
         httpOnly: true,
@@ -254,7 +251,7 @@ const logoutUser = asyncHandler(async (req, res) => {
 })
 
 
-// Retrieves user profile excluding sensitive fields
+// Purpose: Retrieves user profile excluding sensitive fields
 const getProfile = asyncHandler(async (req, res) => {
     const user = await User.findById(req.user._id).select('-password -refreshToken -emailVerificationOTP -emailVerificationToken -passwordResetToken').lean()
 
@@ -265,7 +262,7 @@ const getProfile = asyncHandler(async (req, res) => {
     res.status(200).json(new ApiResponse(200, user, "Profile retrieved successfully"))
 })
 
-// Updates user profile including optional profile image and name
+// Purpose: Updates user profile including optional profile image and name
 const updateProfile = asyncHandler(async (req, res) => {
 
     const user = await User.findById(req.user._id)
@@ -298,7 +295,7 @@ const updateProfile = asyncHandler(async (req, res) => {
 })
 
 
-// Updates user password after validating old password
+// Purpose: Updates user password after validating old password
 const updatePassword = asyncHandler(async (req, res) => {
 
     const { oldPassword, newPassword } = req.body
@@ -323,16 +320,15 @@ const updatePassword = asyncHandler(async (req, res) => {
 })
 
 
-// Initiates Google OAuth authentication flow
+// Purpose: Initiates Google OAuth authentication flow
 const googleOAuth = asyncHandler(async (req, res, next) => {
   next();
 });
 
-// Handles Google OAuth callback and redirects with tokens
+// Purpose: Handles Google OAuth callback and redirects with tokens
 const googleOAuthCallback = asyncHandler(async (req, res) => {
   const user = req.user;
 
-  // FIX: Add safe fallback for FRONTEND_URL to prevent undefined in redirect URLs
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   
   if (!user) {
@@ -349,16 +345,15 @@ const googleOAuthCallback = asyncHandler(async (req, res) => {
   return res.redirect(redirectUrl);
 });
 
-// Initiates Facebook OAuth authentication flow
+// Purpose: Initiates Facebook OAuth authentication flow
 const facebookOAuth = asyncHandler(async (req, res, next) => {
   next();
 });
 
-// Handles Facebook OAuth callback and redirects with tokens
+// Purpose: Handles Facebook OAuth callback and redirects with tokens
 const facebookOAuthCallback = asyncHandler(async (req, res) => {
   const user = req.user;
 
-  // FIX: Add safe fallback for FRONTEND_URL to prevent undefined in redirect URLs
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
   if (!user) {
@@ -375,7 +370,7 @@ const facebookOAuthCallback = asyncHandler(async (req, res) => {
   return res.redirect(redirectUrl);
 });
 
-// Links an OAuth account to the current user account
+// Purpose: Links an OAuth account to the current user account
 const linkOAuthAccount = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { provider, oauthId } = req.body;
@@ -407,7 +402,7 @@ const linkOAuthAccount = asyncHandler(async (req, res) => {
   );
 });
 
-// Unlinks an OAuth account from the user account
+// Purpose: Unlinks an OAuth account from the user account
 const unlinkOAuthAccount = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { provider } = req.body;
@@ -436,7 +431,7 @@ const unlinkOAuthAccount = asyncHandler(async (req, res) => {
   );
 });
 
-// Sends email verification OTP to user's email address
+// Purpose: Sends email verification OTP to user's email address
 const sendEmailVerification = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const user = await User.findById(userId);
@@ -467,7 +462,7 @@ const sendEmailVerification = asyncHandler(async (req, res) => {
   );
 });
 
-// Verifies user email using the provided OTP
+// Purpose: Verifies user email using the provided OTP
 const verifyEmail = asyncHandler(async (req, res) => {
   const { otp } = req.body;
   const userId = req.user._id;
@@ -506,7 +501,7 @@ const verifyEmail = asyncHandler(async (req, res) => {
   );
 });
 
-// Initiates password reset process by sending reset email
+// Purpose: Initiates password reset process by sending reset email
 const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
 
@@ -534,7 +529,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
   );
 });
 
-// Resets user password using a valid reset token
+// Purpose: Resets user password using a valid reset token
 const resetPassword = asyncHandler(async (req, res) => {
   const { token, newPassword } = req.body;
 
@@ -565,7 +560,7 @@ const resetPassword = asyncHandler(async (req, res) => {
   );
 });
 
-// Initiates email change process by sending verification email to new address
+// Purpose: Initiates email change process by sending verification email to new address
 const changeEmail = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { newEmail, password } = req.body;
@@ -627,7 +622,7 @@ const changeEmail = asyncHandler(async (req, res) => {
   );
 });
 
-// Verifies and completes email change using verification token
+// Purpose: Verifies and completes email change using verification token
 const verifyEmailChange = asyncHandler(async (req, res) => {
   const { token } = req.body;
 
@@ -662,7 +657,7 @@ const verifyEmailChange = asyncHandler(async (req, res) => {
   );
 });
 
-// Deletes user account after password verification and deactivates all sessions
+// Purpose: Deletes user account after password verification and deactivates all sessions
 const deleteAccount = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { password } = req.body;
@@ -693,7 +688,7 @@ const deleteAccount = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves all active sessions for the current user
+// Purpose: Retrieves all active sessions for the current user
 const getActiveSessions = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
@@ -708,7 +703,7 @@ const getActiveSessions = asyncHandler(async (req, res) => {
   );
 });
 
-// Revokes a specific user session by session ID
+// Purpose: Revokes a specific user session by session ID
 const revokeSession = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { sessionId } = req.params;
@@ -731,7 +726,7 @@ const revokeSession = asyncHandler(async (req, res) => {
   );
 });
 
-// Revokes all active sessions for the current user
+// Purpose: Revokes all active sessions for the current user
 const revokeAllSessions = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 

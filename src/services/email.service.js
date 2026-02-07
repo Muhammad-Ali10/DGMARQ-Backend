@@ -6,6 +6,7 @@ import { decryptKey } from '../utils/encryption.js';
 import { LicenseKey } from '../models/licensekey.model.js';
 import { logger } from '../utils/logger.js';
 
+// Purpose: Creates and configures an email transporter using SMTP settings
 const createTransporter = () => {
   if (process.env.SMTP_HOST) {
     return nodemailer.createTransport({
@@ -29,25 +30,37 @@ const createTransporter = () => {
   });
 };
 
+// Purpose: Sends license key email to user after order completion
 export const sendLicenseKeyEmail = async (order, user) => {
   try {
     const transporter = createTransporter();
     
-    // FIX: Validate order and user
     if (!order || !user) {
       throw new Error('Order and user are required');
     }
 
-    // FIX: Validate order._id is a valid ObjectId
     if (!order._id || !mongoose.Types.ObjectId.isValid(order._id)) {
       throw new Error(`Invalid order ID: ${order._id}`);
+    }
+
+    if (order.items && order.items.length > 0) {
+      const { Product } = await import('../models/product.model.js');
+      for (const item of order.items) {
+        if (item.productId && !item.productId.name) {
+          const product = await Product.findById(item.productId).select('name images productType').lean();
+          if (product) {
+            item.productId = product;
+          } else if (!item.name) {
+            item.name = 'Product name unavailable';
+          }
+        }
+      }
     }
 
     const keyIds = order.items
       .filter(item => item.assignedKeyIds && item.assignedKeyIds.length > 0)
       .flatMap(item => item.assignedKeyIds);
 
-    // FIX: Safely extract productIds and validate ObjectIds
     const productIds = [];
     for (const item of order.items) {
       if (!item.productId) {
@@ -55,7 +68,6 @@ export const sendLicenseKeyEmail = async (order, user) => {
         continue;
       }
       
-      // Handle populated productId (object) or direct ObjectId/string
       let productIdValue;
       if (typeof item.productId === 'object' && item.productId._id) {
         productIdValue = item.productId._id;
@@ -63,7 +75,6 @@ export const sendLicenseKeyEmail = async (order, user) => {
         productIdValue = item.productId;
       }
       
-      // Convert to string and validate
       const productIdStr = productIdValue.toString();
       if (mongoose.Types.ObjectId.isValid(productIdStr)) {
         productIds.push(productIdStr);
@@ -72,14 +83,12 @@ export const sendLicenseKeyEmail = async (order, user) => {
       }
     }
 
-    // FIX: Remove duplicates and validate all ObjectIds before querying
     const uniqueProductIds = [...new Set(productIds)];
     if (uniqueProductIds.length === 0) {
       logger.warn(`No valid productIds found in order ${order._id}`);
       throw new Error('No valid product IDs found in order');
     }
 
-    // FIX: Validate all ObjectIds before creating them
     const validObjectIds = uniqueProductIds
       .filter(id => mongoose.Types.ObjectId.isValid(id))
       .map(id => {
@@ -100,22 +109,45 @@ export const sendLicenseKeyEmail = async (order, user) => {
       productId: { $in: validObjectIds },
     });
     
+    const keyToItemMap = new Map();
+    for (const item of order.items) {
+      if (item.assignedKeyIds && item.assignedKeyIds.length > 0) {
+        for (const keyId of item.assignedKeyIds) {
+          keyToItemMap.set(keyId.toString(), item);
+        }
+      }
+    }
+    
     const decryptedKeys = [];
-    for (const doc of licenseKeyDocs) {
-      for (const key of doc.keys) {
-        if (keyIds.some(id => id.toString() === key._id.toString())) {
-          try {
-            const decrypted = decryptKey(key.keyData);
-            decryptedKeys.push(decrypted);
-          } catch (error) {
-            logger.error(`Failed to decrypt key ${key._id}`, error);
-            decryptedKeys.push('[Decryption Error]');
+    for (const item of order.items) {
+      if (item.assignedKeyIds && item.assignedKeyIds.length > 0) {
+        for (const keyId of item.assignedKeyIds) {
+          let found = false;
+          for (const doc of licenseKeyDocs) {
+            const key = doc.keys.find(k => k._id.toString() === keyId.toString());
+            if (key) {
+              try {
+                const decrypted = decryptKey(key.keyData);
+                decryptedKeys.push(decrypted);
+                found = true;
+                break;
+              } catch (error) {
+                logger.error(`Failed to decrypt key ${key._id}`, error);
+                decryptedKeys.push('[Decryption Error]');
+                found = true;
+                break;
+              }
+            }
+          }
+          if (!found) {
+            logger.warn(`Key ${keyId} not found in license key documents for order ${order._id}`);
+            decryptedKeys.push('[Key Not Found]');
           }
         }
       }
     }
 
-    const html = licenseKeyEmailTemplate(order, decryptedKeys, user);
+    const html = licenseKeyEmailTemplate(order, decryptedKeys, user, keyToItemMap);
 
     const hasAccountProducts = order.items.some(item => item.productId?.productType === 'ACCOUNT_BASED');
     const subject = hasAccountProducts 
@@ -131,7 +163,6 @@ export const sendLicenseKeyEmail = async (order, user) => {
 
     const info = await transporter.sendMail(mailOptions);
 
-    // FIX: Validate order._id before creating EmailLog
     const orderId = mongoose.Types.ObjectId.isValid(order._id) 
       ? new mongoose.Types.ObjectId(order._id) 
       : null;
@@ -180,7 +211,6 @@ export const sendLicenseKeyEmail = async (order, user) => {
   } catch (error) {
     logger.error('Failed to send license key email', error);
     
-    // FIX: Validate order._id before creating EmailLog
     const orderIdForError = order && order._id && mongoose.Types.ObjectId.isValid(order._id)
       ? new mongoose.Types.ObjectId(order._id)
       : null;
@@ -198,16 +228,163 @@ export const sendLicenseKeyEmail = async (order, user) => {
   }
 };
 
+// Purpose: Sends license key email to guest (no user account) after order completion
+export const sendLicenseKeyEmailToGuest = async (order, guestEmail) => {
+  try {
+    const transporter = createTransporter();
+    const emailTrimmed = typeof guestEmail === 'string' ? guestEmail.trim().toLowerCase() : '';
+    if (!emailTrimmed) {
+      throw new Error('Guest email is required');
+    }
+    if (!order || !order._id || !mongoose.Types.ObjectId.isValid(order._id)) {
+      throw new Error(`Invalid order: ${order?._id}`);
+    }
+    const guestUser = { email: emailTrimmed, name: 'Guest' };
+    if (order.items && order.items.length > 0) {
+      const { Product } = await import('../models/product.model.js');
+      for (const item of order.items) {
+        if (item.productId && !item.productId.name) {
+          const product = await Product.findById(item.productId).select('name images productType').lean();
+          if (product) {
+            item.productId = product;
+          } else if (!item.name) {
+            item.name = 'Product name unavailable';
+          }
+        }
+      }
+    }
+    const keyIds = order.items
+      .filter(item => item.assignedKeyIds && item.assignedKeyIds.length > 0)
+      .flatMap(item => item.assignedKeyIds);
+    const productIds = [];
+    for (const item of order.items) {
+      if (!item.productId) continue;
+      const productIdValue = typeof item.productId === 'object' && item.productId._id ? item.productId._id : item.productId;
+      const productIdStr = productIdValue.toString();
+      if (mongoose.Types.ObjectId.isValid(productIdStr)) productIds.push(productIdStr);
+    }
+    const uniqueProductIds = [...new Set(productIds)];
+    if (uniqueProductIds.length === 0) {
+      throw new Error('No valid product IDs found in order');
+    }
+    const validObjectIds = uniqueProductIds
+      .filter(id => mongoose.Types.ObjectId.isValid(id))
+      .map(id => new mongoose.Types.ObjectId(id))
+      .filter(id => id !== null);
+    if (validObjectIds.length === 0) throw new Error('No valid product ObjectIds found');
+    const licenseKeyDocs = await LicenseKey.find({ productId: { $in: validObjectIds } });
+    const keyToItemMap = new Map();
+    for (const item of order.items) {
+      if (item.assignedKeyIds && item.assignedKeyIds.length > 0) {
+        for (const keyId of item.assignedKeyIds) {
+          keyToItemMap.set(keyId.toString(), item);
+        }
+      }
+    }
+    const decryptedKeys = [];
+    for (const item of order.items) {
+      if (item.assignedKeyIds && item.assignedKeyIds.length > 0) {
+        for (const keyId of item.assignedKeyIds) {
+          let found = false;
+          for (const doc of licenseKeyDocs) {
+            const key = doc.keys.find(k => k._id.toString() === keyId.toString());
+            if (key) {
+              try {
+                decryptedKeys.push(decryptKey(key.keyData));
+              } catch (error) {
+                logger.error(`Failed to decrypt key ${key._id}`, error);
+                decryptedKeys.push('[Decryption Error]');
+              }
+              found = true;
+              break;
+            }
+          }
+          if (!found) decryptedKeys.push('[Key Not Found]');
+        }
+      }
+    }
+    const html = licenseKeyEmailTemplate(order, decryptedKeys, guestUser, keyToItemMap);
+    const hasAccountProducts = order.items.some(item => item.productId?.productType === 'ACCOUNT_BASED');
+    const subject = hasAccountProducts
+      ? `Your Order Details - Order #${order._id}`
+      : `Your License Keys - Order #${order._id}`;
+    const mailOptions = {
+      from: process.env.EMAIL_FROM || 'noreply@dgmarq.com',
+      to: emailTrimmed,
+      subject,
+      html,
+    };
+    const info = await transporter.sendMail(mailOptions);
+    const orderIdObj = mongoose.Types.ObjectId.isValid(order._id) ? new mongoose.Types.ObjectId(order._id) : null;
+    await EmailLog.create({
+      recipient: emailTrimmed,
+      subject: mailOptions.subject,
+      template: 'licenseKey',
+      status: 'sent',
+      orderId: orderIdObj,
+      sentAt: new Date(),
+    });
+    for (let i = 0; i < order.items.length; i++) {
+      if (order.items[i].assignedKeyIds && order.items[i].assignedKeyIds.length > 0) {
+        order.items[i].keyDeliveryEmail = emailTrimmed;
+        order.items[i].keyDeliveryStatus = 'sent';
+        order.items[i].keyDeliveredAt = new Date();
+      }
+    }
+    for (const doc of licenseKeyDocs) {
+      const docKeyIds = doc.keys
+        .filter(key => keyIds.some(id => id.toString() === key._id.toString()))
+        .map(key => key._id);
+      if (docKeyIds.length > 0) {
+        await LicenseKey.updateOne(
+          { _id: doc._id },
+          { $set: { 'keys.$[key].emailSent': true, 'keys.$[key].emailSentAt': new Date() } },
+          { arrayFilters: [{ 'key._id': { $in: docKeyIds } }] }
+        );
+      }
+    }
+    await order.save();
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    logger.error('Failed to send license key email to guest', error);
+    const orderIdForError = order && order._id && mongoose.Types.ObjectId.isValid(order._id)
+      ? new mongoose.Types.ObjectId(order._id)
+      : null;
+    await EmailLog.create({
+      recipient: guestEmail || 'unknown',
+      subject: `Your License Keys - Order #${order?._id || 'unknown'}`,
+      template: 'licenseKey',
+      status: 'failed',
+      orderId: orderIdForError,
+      error: error.message,
+    });
+    throw error;
+  }
+};
+
+// Purpose: Sends order confirmation email to user after successful order
 export const sendOrderConfirmation = async (order, user) => {
   try {
-    // FIX: Validate order and user
     if (!order || !user) {
       throw new Error('Order and user are required');
     }
 
-    // FIX: Validate order._id is a valid ObjectId
     if (!order._id || !mongoose.Types.ObjectId.isValid(order._id)) {
       throw new Error(`Invalid order ID: ${order._id}`);
+    }
+
+    if (order.items && order.items.length > 0) {
+      const { Product } = await import('../models/product.model.js');
+      for (const item of order.items) {
+        if (item.productId && !item.productId.name) {
+          const product = await Product.findById(item.productId).select('name images productType').lean();
+          if (product) {
+            item.productId = product;
+          } else if (!item.name) {
+            item.name = 'Product name unavailable';
+          }
+        }
+      }
     }
 
     const transporter = createTransporter();
@@ -223,7 +400,6 @@ export const sendOrderConfirmation = async (order, user) => {
     const info = await transporter.sendMail(mailOptions);
     logger.info(`Order confirmation email sent to ${user.email} for order ${order._id}`);
 
-    // FIX: Validate order._id before creating EmailLog
     const orderId = mongoose.Types.ObjectId.isValid(order._id) 
       ? new mongoose.Types.ObjectId(order._id) 
       : null;
@@ -241,7 +417,6 @@ export const sendOrderConfirmation = async (order, user) => {
   } catch (error) {
     logger.error('Failed to send order confirmation', error);
     
-    // FIX: Log error to EmailLog
     const orderIdForError = order && order._id && mongoose.Types.ObjectId.isValid(order._id)
       ? new mongoose.Types.ObjectId(order._id)
       : null;
@@ -261,6 +436,7 @@ export const sendOrderConfirmation = async (order, user) => {
   }
 };
 
+// Purpose: Sends payout notification email to seller after payout is processed
 export const sendPayoutNotification = async (payout, seller, user) => {
   try {
     const transporter = createTransporter();
@@ -290,6 +466,7 @@ export const sendPayoutNotification = async (payout, seller, user) => {
   }
 };
 
+// Purpose: Sends password reset email with reset link to user
 export const sendPasswordResetEmail = async (user, resetToken) => {
   try {
     const transporter = createTransporter();
@@ -333,6 +510,7 @@ export const sendPasswordResetEmail = async (user, resetToken) => {
   }
 };
 
+// Purpose: Sends email verification OTP to user for account verification
 export const sendEmailVerificationOTP = async (user, otp) => {
   try {
     const transporter = createTransporter();

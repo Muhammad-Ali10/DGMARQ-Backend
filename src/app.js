@@ -5,34 +5,22 @@ import session from "express-session";
 import passport from "./config/passport.config.js";
 import { errorHandler } from "./middlerwares/error.middlerware.js";
 import { enforceHTTPS, securityHeaders } from "./middlerwares/https.middlerware.js";
+
+// Purpose: Create and configure Express application instance
 const app = express();
 
-// Trust proxy - Required for accurate IP detection behind reverse proxy (Nginx, load balancer)
-// Trust only the first proxy (Nginx) to prevent X-Forwarded-For header spoofing attacks
-// Using 1 instead of true is more secure and fixes ERR_ERL_PERMISSIVE_TRUST_PROXY warning
 app.set('trust proxy', 1);
-
-// Note: Compression should be handled by reverse proxy (Nginx) in production
-// For development, you can add compression middleware if needed
-
-// Security headers for PayPal CardFields (must be before other middleware)
 app.use(securityHeaders);
-
-// HTTPS enforcement middleware (for PayPal CardFields compatibility)
 app.use(enforceHTTPS);
-
-// CORS Configuration - Support both HTTP and HTTPS origins in development
 const corsOrigin = process.env.FRONTEND_URL || 'http://localhost:5173';
-console.log(process.env.FRONTEND_URL);
 const corsOrigins = [corsOrigin];
 
-// Add HTTPS version of frontend URL if HTTP is specified
 if (corsOrigin.startsWith('http://')) {
   const httpsOrigin = corsOrigin.replace('http://', 'https://');
   corsOrigins.push(httpsOrigin);
 }
 
-// Normalize origins for comparison (remove trailing slashes)
+// Purpose: Remove trailing slash from URL for consistent origin comparison
 const normalizeOrigin = (url) => {
   if (!url) return url;
   return url.replace(/\/$/, '');
@@ -41,37 +29,25 @@ const normalizeOrigin = (url) => {
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (mobile apps, Postman, webhooks, etc.)
       if (!origin) return callback(null, true);
       
-      // Allow PayPal webhook origins
       if (origin.includes('paypal.com') || origin.includes('paypalobjects.com')) {
         return callback(null, true);
       }
       
-      // Normalize origin for comparison
       const normalizedOrigin = normalizeOrigin(origin);
       
-      // Check if origin is in allowed list (normalized comparison)
       if (corsOrigins.some(allowed => {
         const normalizedAllowed = normalizeOrigin(allowed);
         return normalizedOrigin === normalizedAllowed || normalizedOrigin.startsWith(normalizedAllowed);
       })) {
         return callback(null, true);
       }
-      
-      // In development, allow localhost with any protocol
       if (process.env.NODE_ENV !== 'production') {
         if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
           return callback(null, true);
         }
       }
-      
-      // Log rejected origin for debugging (only in development)
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`[CORS] Rejected origin: ${origin}, Allowed origins: ${corsOrigins.join(', ')}`);
-      }
-      
       callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
@@ -79,9 +55,6 @@ app.use(
   })
 );
 
-
-// IMPORTANT: Register webhook route BEFORE JSON parser to preserve raw body for signature verification
-// Webhooks need raw body for PayPal signature verification
 import webhookRouter from "./routes/webhook.route.js";
 app.use("/api/v1/webhook", webhookRouter);
 
@@ -103,36 +76,8 @@ app.use(
 app.use(cookieParser());
 app.use(express.static("public"));
 
-// Session configuration for Passport
-// NOTE: MemoryStore is not suitable for production as it leaks memory and doesn't scale
-// For production, use MongoDB session store (connect-mongo)
-// To fix: 
-//   1. Install: npm install connect-mongo
-//   2. Import at top: import MongoStore from 'connect-mongo';
-//   3. Import mongoose connection: import mongoose from 'mongoose';
-//   4. Replace store: undefined with: store: MongoStore.create({ client: mongoose.connection.getClient() })
-
 let sessionStore = undefined;
-
-// TODO: Configure MongoDB session store for production
-// Uncomment and configure when connect-mongo is installed:
-// if (process.env.NODE_ENV === 'production') {
-//   import('connect-mongo').then(({ default: MongoStore }) => {
-//     import('mongoose').then(({ default: mongoose }) => {
-//       sessionStore = MongoStore.create({
-//         client: mongoose.connection.getClient(),
-//         collectionName: 'sessions',
-//         ttl: 24 * 60 * 60, // 24 hours
-//       });
-//     });
-//   }).catch(() => {
-//     console.warn('⚠️  connect-mongo not installed. Using MemoryStore (not recommended for production).');
-//   });
-// }
-
 if (process.env.NODE_ENV === 'production' && !sessionStore) {
-  console.warn('⚠️  WARNING: Using MemoryStore for sessions in production!');
-  console.warn('⚠️  This will leak memory and not scale. Install connect-mongo for production use.');
 }
 
 app.use(
@@ -140,18 +85,16 @@ app.use(
     secret: process.env.SESSION_SECRET || "dgmarq-secret-key",
     resave: false,
     saveUninitialized: false,
-    store: sessionStore, // Use MongoDB store in production, MemoryStore in development
+    store: sessionStore,
     cookie: {
-      // FIX: Enable secure cookies when using HTTPS (even in development)
       secure: process.env.NODE_ENV === "production" || process.env.USE_HTTPS === "true",
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      sameSite: 'lax', // Required for PayPal CardFields
+      maxAge: 24 * 60 * 60 * 1000,
+      sameSite: 'lax',
     },
   })
 );
 
-// Initialize Passport
 app.use(passport.initialize());
 app.use(passport.session());
 
@@ -176,7 +119,6 @@ import payoutRouter from "./routes/payout.route.js";
 import notificationRouter from "./routes/notification.route.js";
 import chatRouter from "./routes/chat.route.js";
 import adminRouter from "./routes/admin.route.js";
-import disputeRouter from "./routes/dispute.route.js";
 import couponRouter from "./routes/coupon.route.js";
 import returnrefundRouter from "./routes/returnrefund.route.js";
 import analyticsRouter from "./routes/analytics.route.js";
@@ -217,7 +159,6 @@ app.use("/api/v1/payout", payoutRouter);
 app.use("/api/v1/notification", notificationRouter);
 app.use("/api/v1/chat", chatRouter);
 app.use("/api/v1/admin", adminRouter);
-app.use("/api/v1/dispute", disputeRouter);
 app.use("/api/v1/coupon", couponRouter);
 app.use("/api/v1/return-refund", returnrefundRouter);
 app.use("/api/v1/analytics", analyticsRouter);

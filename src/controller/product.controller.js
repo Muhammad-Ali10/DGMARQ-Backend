@@ -30,6 +30,7 @@ import {
   updateCheckDuplicateRecord
 } from "../services/product.service.js";
 
+// Purpose: Creates a new product with validation and optional auto-approval
 const createProduct = asyncHandler(async (req, res) => {
   const userId = req.user?._id || req.user;
   const files = req.files;
@@ -117,19 +118,16 @@ const createProduct = asyncHandler(async (req, res) => {
   const images = uploaded.map((i) => i.url);
   const publicId = uploaded.map((i) => i.public_id);
 
-  // Check auto-approve setting
   const { PlatformSettings } = await import("../models/platform.model.js");
   const autoApproveSetting = await PlatformSettings.findOne({ key: 'auto_approve_products' });
   const autoApprove = autoApproveSetting ? autoApproveSetting.value === true : false;
 
-  // Determine initial status based on auto-approve setting
   let initialStatus = 'pending';
   let approvedBy = null;
   let approvedAt = null;
 
   if (autoApprove) {
     initialStatus = 'active';
-    // Note: approvedBy would be null for auto-approved products, but we could set it to system
     approvedAt = new Date();
   }
 
@@ -166,6 +164,7 @@ const createProduct = asyncHandler(async (req, res) => {
     .json(new ApiResponse(true, product, "Product created successfully"));
 });
 
+// Purpose: Updates product images by adding or removing them
 const updateProductImages = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const files = req.files;
@@ -209,6 +208,7 @@ const updateProductImages = asyncHandler(async (req, res) => {
     .json(new ApiResponse(true, product, "Images updated successfully"));
 });
 
+// Purpose: Deletes a product and its associated cloud images
 const deleteProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -229,6 +229,7 @@ const deleteProduct = asyncHandler(async (req, res) => {
     .json(new ApiResponse(true, "Product deleted successfully"));
 });
 
+// Purpose: Updates product details with ownership validation
 const updateProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user._id;
@@ -347,6 +348,7 @@ const updateProduct = asyncHandler(async (req, res) => {
     .json(new ApiResponse(true, product, "Product updated successfully"));
 });
 
+// Purpose: Retrieves paginated products with optional seller filtering
 const getProducts = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
   const userRoles = Array.isArray(req.user?.roles) ? req.user?.roles : (req.user?.role ? [req.user.role] : []);
@@ -370,16 +372,15 @@ const getProducts = asyncHandler(async (req, res) => {
     query.userId = userId.toString();
   }
 
-  const result = await fetchProducts(query, req.user);
 
+  const result = await fetchProducts(query, req.user);
   return res
     .status(200)
     .json(new ApiResponse(true, result, "Products fetched successfully"));
   
 });
 
-
-
+// Purpose: Retrieves a product by ID or slug with full details and trending offers
 const getProductById = asyncHandler(async (req, res) => {
   const { identifier } = req.params;
 
@@ -396,10 +397,7 @@ const getProductById = asyncHandler(async (req, res) => {
   let productBeforePopulate;
   
   if (mongoose.Types.ObjectId.isValid(identifier)) {
-    // First fetch without populate to check if sellerId exists
     productBeforePopulate = await Product.findById(identifier).lean();
-    
-    // Debug logging removed - use logger.debug if needed
     
     product = await Product.findById(identifier)
       .populate("sellerId", "shopName shopLogo shopBanner description country state city rating status")
@@ -413,10 +411,7 @@ const getProductById = asyncHandler(async (req, res) => {
       .populate("device", "name")
       .populate("theme", "name");
   } else {
-    // First fetch without populate to check if sellerId exists
     productBeforePopulate = await Product.findOne({ slug: identifier }).lean();
-    
-    // Debug logging removed
     
     product = await Product.findOne({ slug: identifier })
       .populate("sellerId", "shopName shopLogo shopBanner description country state city rating status")
@@ -435,43 +430,29 @@ const getProductById = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Product not found");
   }
 
-  // Debug logging removed - use logger.debug if needed
-
-  // Increment view count atomically (don't fetch, just update)
   await Product.findByIdAndUpdate(
     product._id,
     { $inc: { viewCount: 1 } },
     { new: false }
   );
   
-  // Update the product object with incremented viewCount
   product.viewCount = (product.viewCount || 0) + 1;
 
-  // Convert to object and ensure all populated fields are included
   const productObject = product.toObject();
   
-  // Get the original sellerId - use the value from before populate if available
   let originalSellerId = null;
   
-  // First, try to get sellerId from the product before populate (most reliable)
   if (productBeforePopulate && productBeforePopulate.sellerId) {
     originalSellerId = productBeforePopulate.sellerId;
-  }
-  // Then check if sellerId was populated (object with _id)
-  else if (product.sellerId) {
+  } else if (product.sellerId) {
     if (typeof product.sellerId === 'object' && product.sellerId._id) {
-      // Populated seller object
       originalSellerId = product.sellerId._id;
     } else if (product.sellerId instanceof mongoose.Types.ObjectId) {
-      // Raw ObjectId
       originalSellerId = product.sellerId;
     } else if (typeof product.sellerId === 'string') {
-      // String ID
       originalSellerId = product.sellerId;
     }
-  }
-  // Fallback to productObject.sellerId
-  else if (productObject.sellerId) {
+  } else if (productObject.sellerId) {
     if (typeof productObject.sellerId === 'object' && productObject.sellerId._id) {
       originalSellerId = productObject.sellerId._id;
     } else {
@@ -496,8 +477,6 @@ const getProductById = asyncHandler(async (req, res) => {
       status: product.sellerId.status || null,
     };
   } else if (originalSellerId) {
-    // SellerId exists but wasn't populated (seller document might not exist)
-    // Try to fetch seller manually
     try {
       const { Seller } = await import("../models/seller.model.js");
       const sellerDoc = await Seller.findById(originalSellerId).select("shopName shopLogo shopBanner description country state city rating status");
@@ -517,29 +496,24 @@ const getProductById = asyncHandler(async (req, res) => {
         };
         logger.debug('Seller fetched successfully', { shopName: productObject.sellerId.shopName });
       } else {
-        // Seller document doesn't exist, keep the ID
         logger.warn('Seller document not found for sellerId', { sellerId: originalSellerId });
         productObject.sellerId = originalSellerId;
       }
     } catch (err) {
       logger.error('Error fetching seller', err);
-      // Keep the original sellerId if fetch fails
       productObject.sellerId = originalSellerId;
     }
   } else {
-    // If sellerId is null or undefined, the product doesn't have a seller assigned
     logger.warn('Product does not have a sellerId assigned', { productId: product._id });
     productObject.sellerId = null;
   }
 
-  // Add trending offer pricing if available
   let productResponse = {
     ...productObject,
     metaTitle: product.metaTitle || null,
     metaDescription: product.metaDescription || null,
   };
 
-  // Check for trending offer
   try {
     const { getTrendingOfferForProduct, calculateTrendingOfferDiscount } = await import("../services/trendingoffer.service.js");
     const offer = await getTrendingOfferForProduct(product._id);
@@ -556,7 +530,6 @@ const getProductById = asyncHandler(async (req, res) => {
       };
     }
   } catch (error) {
-    // If trending offer service fails, continue without it
     logger.error('Error fetching trending offer', error);
   }
 
@@ -565,6 +538,7 @@ const getProductById = asyncHandler(async (req, res) => {
     .json(new ApiResponse(true, productResponse, "Product retrieved successfully"));
 });
 
+// Purpose: Uploads license keys or account credentials for a product
 const uploadKeys = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user._id;
@@ -632,6 +606,7 @@ const uploadKeys = asyncHandler(async (req, res) => {
   );
 });
 
+// Purpose: Retrieves paginated license keys for a seller's product
 const getProductKeys = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user._id;
@@ -679,6 +654,7 @@ const getProductKeys = asyncHandler(async (req, res) => {
   );
 });
 
+// Purpose: Synchronizes product stock count with available keys
 const syncStock = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user._id;
@@ -725,6 +701,7 @@ const syncStock = asyncHandler(async (req, res) => {
   );
 });
 
+// Purpose: Duplicates an existing product with a new slug and pending status
 const duplicateProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user._id;

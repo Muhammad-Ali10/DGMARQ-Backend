@@ -73,12 +73,12 @@ const productSchema = new Schema(
 productSchema.index({ platform: 1, region: 1, type: 1 });
 productSchema.index({ name: "text", description: "text" });
 productSchema.index({ metaTitle: "text" });
-// Optimized indexes for Software page queries
-productSchema.index({ status: 1, platform: 1 }); // For Microsoft section
-productSchema.index({ status: 1, categoryId: 1 }); // For category-based sections
-productSchema.index({ status: 1, subCategoryId: 1 }); // For subcategory-based sections
-productSchema.index({ status: 1, reviewCount: -1, averageRating: -1 }); // For best sellers
-productSchema.index({ status: 1, createdAt: -1 }); // For trending/newest
+productSchema.index({ status: 1, platform: 1 });
+productSchema.index({ status: 1, categoryId: 1 });
+productSchema.index({ status: 1, subCategoryId: 1 });
+productSchema.index({ status: 1, reviewCount: -1, averageRating: -1 });
+productSchema.index({ status: 1, createdAt: -1 });
 productSchema.plugin(mongooseAggregatePaginate);
 
+// Purpose: Stores product listings with pricing, inventory, and metadata for the marketplace
 export const Product = mongoose.model("Product", productSchema);

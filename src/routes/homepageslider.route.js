@@ -11,15 +11,15 @@ import {
 } from "../controller/homepageslider.controller.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
+// Purpose: Homepage slider routes for public display and admin management
+
 const router = express.Router();
 
 router.use(apiRateLimiter);
 
-// Public routes
 router.get("/", getHomepageSliders);
 router.get("/:id", getHomepageSliderById);
 
-// Admin routes
 router.post("/", verifyJWT, authorizeRoles("admin"), upload.single("image"), createHomepageSlider);
 router.patch("/:id", verifyJWT, authorizeRoles("admin"), upload.single("image"), updateHomepageSlider);
 router.delete("/:id", verifyJWT, authorizeRoles("admin"), deleteHomepageSlider);

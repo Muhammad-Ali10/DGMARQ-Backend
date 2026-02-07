@@ -64,7 +64,7 @@ const userSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
-
+// Purpose: Pre-save middleware that hashes the password before storing
 userSchema.pre('save', async function (next) {
     if (!this.isModified('password')) {
         return next();
@@ -73,11 +73,12 @@ userSchema.pre('save', async function (next) {
     next();
 });
 
+// Purpose: Compares provided password with stored hashed password
 userSchema.methods.isPasswordCorrect = async function (password) {
     return await bcrypt.compare(password, this.password);
 };
 
-
+// Purpose: Generates a JWT access token containing user identity and roles
 userSchema.methods.generateAccessToken = function () {
 
     return jwt.sign({
@@ -94,6 +95,7 @@ userSchema.methods.generateAccessToken = function () {
     )
 }
 
+// Purpose: Generates a JWT refresh token for session renewal
 userSchema.methods.generateRefreshToken = function () {
     return jwt.sign({
         _id: this._id
@@ -105,4 +107,5 @@ userSchema.methods.generateRefreshToken = function () {
     )
 }
 
+// Purpose: Represents user accounts with authentication, roles, and profile data
 export const User = mongoose.model("User", userSchema)

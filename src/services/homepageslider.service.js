@@ -3,9 +3,7 @@ import { Product } from '../models/product.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import mongoose from 'mongoose';
 
-/**
- * Get active homepage sliders
- */
+// Purpose: Retrieves active homepage sliders sorted by slide index and order
 export const getActiveSliders = async () => {
   return await HomepageSlider.find({
     isActive: true,
@@ -15,15 +13,10 @@ export const getActiveSliders = async () => {
     .lean();
 };
 
-/**
- * Validate slider data
- * Product selection is now optional - slides can be image-only
- */
+// Purpose: Validates slider data ensuring product exists if specified
 export const validateSliderData = async (data) => {
   const { productId, link } = data;
 
-  // Product selection is optional - no validation required if both are empty
-  // If productId provided, verify it exists
   if (productId) {
     if (!mongoose.Types.ObjectId.isValid(productId)) {
       return { valid: false, error: 'Invalid product ID' };

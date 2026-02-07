@@ -1,33 +1,23 @@
-/**
- * Sanitize HTML and prevent script injection
- * Removes potentially dangerous HTML tags and attributes
- */
+// Purpose: Removes HTML tags and dangerous content from text
 export const sanitizeText = (text) => {
   if (!text || typeof text !== 'string') {
     return text;
   }
 
-  // Remove HTML tags
   let sanitized = text.replace(/<[^>]*>/g, '');
   
-  // Remove script tags and their content
   sanitized = sanitized.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
   
-  // Remove javascript: protocol
   sanitized = sanitized.replace(/javascript:/gi, '');
   
-  // Remove on* event handlers
   sanitized = sanitized.replace(/\son\w+\s*=\s*["'][^"']*["']/gi, '');
   
-  // Trim whitespace
   sanitized = sanitized.trim();
   
   return sanitized;
 };
 
-/**
- * Validate SEO title length
- */
+// Purpose: Validates SEO meta title length
 export const validateMetaTitle = (title) => {
   if (!title) return { valid: true, value: null };
   
@@ -47,9 +37,7 @@ export const validateMetaTitle = (title) => {
   return { valid: true, value: sanitized };
 };
 
-/**
- * Validate SEO description length
- */
+// Purpose: Validates SEO meta description length
 export const validateMetaDescription = (description) => {
   if (!description) return { valid: true, value: null };
   

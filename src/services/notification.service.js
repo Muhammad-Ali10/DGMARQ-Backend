@@ -2,7 +2,7 @@ import { Notification } from '../models/notification.model.js';
 import mongoose from 'mongoose';
 import { logger } from '../utils/logger.js';
 
-// Creates a new notification for a user
+// Purpose: Creates a new notification for a user with specified type and priority
 export const createNotification = async (userId, type, title, message, data = null, actionUrl = null, priority = 'medium') => {
   try {
     const notification = await Notification.create({
@@ -23,7 +23,7 @@ export const createNotification = async (userId, type, title, message, data = nu
   }
 };
 
-// Retrieves user notifications with pagination and optional unread filter
+// Purpose: Retrieves user notifications with pagination and optional filters
 export const getUserNotifications = async (userId, page = 1, limit = 20, unreadOnly = false, type = null) => {
   const skip = (page - 1) * limit;
 
@@ -60,7 +60,7 @@ export const getUserNotifications = async (userId, page = 1, limit = 20, unreadO
   };
 };
 
-// Marks a specific notification as read
+// Purpose: Marks a specific notification as read for a user
 export const markAsRead = async (notificationId, userId) => {
   const notification = await Notification.findOneAndUpdate(
     {
@@ -81,7 +81,7 @@ export const markAsRead = async (notificationId, userId) => {
   return notification;
 };
 
-// Marks all user notifications as read
+// Purpose: Marks all unread notifications as read for a user
 export const markAllAsRead = async (userId) => {
   const result = await Notification.updateMany(
     {
@@ -97,7 +97,7 @@ export const markAllAsRead = async (userId) => {
   return result;
 };
 
-// Deletes a specific notification
+// Purpose: Deletes a specific notification for a user
 export const deleteNotification = async (notificationId, userId) => {
   const notification = await Notification.findOneAndDelete({
     _id: notificationId,
@@ -111,7 +111,7 @@ export const deleteNotification = async (notificationId, userId) => {
   return notification;
 };
 
-// Retrieves count of unread notifications for a user
+// Purpose: Retrieves count of unread notifications for a user
 export const getUnreadCount = async (userId) => {
   const count = await Notification.countDocuments({
     userId: new mongoose.Types.ObjectId(userId),
@@ -121,7 +121,7 @@ export const getUnreadCount = async (userId) => {
   return count;
 };
 
-// Sends order confirmation notification to user
+// Purpose: Sends order confirmation notification to user
 export const notifyOrderCreated = async (userId, order) => {
   return await createNotification(
     userId,
@@ -134,7 +134,7 @@ export const notifyOrderCreated = async (userId, order) => {
   );
 };
 
-// Sends payout processed notification to seller
+// Purpose: Sends payout processed notification to seller
 export const notifyPayoutProcessed = async (userId, payout) => {
   return await createNotification(
     userId,

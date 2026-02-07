@@ -2,7 +2,8 @@ import { AuditLog } from '../models/auditLog.model.js';
 import mongoose from 'mongoose';
 import { logger } from '../utils/logger.js';
 
-// Logs an action to the audit trail with error handling
+// Purpose: Logs an action to the audit trail with error handling. Audit logs are append-only (create only; no updates/deletes).
+// For refund/payout: metadata should include actor, previousStatus, newStatus, timestamp, notes when applicable.
 export const logAction = async (action, userId, entityType, entityId, metadata = null, ipAddress = null, userAgent = null, status = 'success', error = null) => {
   try {
     const auditLog = await AuditLog.create({
@@ -17,13 +18,13 @@ export const logAction = async (action, userId, entityType, entityId, metadata =
       error,
     });
     return auditLog;
-  } catch (error) {
-    logger.error('Failed to create audit log', error);
+  } catch (err) {
+    logger.error('Failed to create audit log', err);
     return null;
   }
 };
 
-// Retrieves audit trail for a specific entity with pagination
+// Purpose: Retrieves audit trail for a specific entity with pagination
 export const getAuditTrail = async (entityType, entityId, page = 1, limit = 50) => {
   const skip = (page - 1) * limit;
 
@@ -53,7 +54,7 @@ export const getAuditTrail = async (entityType, entityId, page = 1, limit = 50) 
   };
 };
 
-// Retrieves audit trail for a specific user with pagination
+// Purpose: Retrieves audit trail for a specific user with pagination
 export const getUserAuditTrail = async (userId, page = 1, limit = 50) => {
   const skip = (page - 1) * limit;
 
@@ -80,7 +81,7 @@ export const getUserAuditTrail = async (userId, page = 1, limit = 50) => {
   };
 };
 
-// Logs a security-related event to the audit trail
+// Purpose: Logs a security-related event to the audit trail
 export const logSecurityEvent = async (event, userId, ipAddress, userAgent, metadata = null) => {
   return await logAction(
     `security:${event}`,
@@ -94,7 +95,7 @@ export const logSecurityEvent = async (event, userId, ipAddress, userAgent, meta
   );
 };
 
-// Wrapper function for audit logging with backward compatibility
+// Purpose: Wrapper function for audit logging with backward compatibility
 export const auditLog = async (userId, action, message, metadata = null) => {
   return await logAction(
     action,

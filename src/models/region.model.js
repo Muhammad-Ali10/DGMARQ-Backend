@@ -12,4 +12,5 @@ const schema = new mongoose.Schema(
   { timestamps: true },
     )
 schema.plugin(mongooseAggregatePaginate);
+// Purpose: Represents a geographic region for location-based organization
 export const Region = mongoose.model("Region", schema)

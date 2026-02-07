@@ -1,28 +1,17 @@
 import { Router } from "express";
-import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
+import { optionalJWT } from "../middlerwares/authmiddlerware.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 import { createOrder, captureOrder } from "../controller/paypalOrders.controller.js";
 
+// Purpose: PayPal payment order creation and capture routes (optional auth for guest checkout)
+
 const router = Router();
 
-// Apply rate limiting
 router.use(apiRateLimiter);
 
-// Create PayPal Order
-router.post(
-  "/orders",
-  verifyJWT,
-  authorizeRoles("customer", "admin"),
-  createOrder
-);
+router.post("/orders", optionalJWT, createOrder);
 
-// Capture PayPal Order
-router.post(
-  "/orders/:orderId/capture",
-  verifyJWT,
-  authorizeRoles("customer", "admin"),
-  captureOrder
-);
+router.post("/orders/:orderId/capture", optionalJWT, captureOrder);
 
 export default router;
 

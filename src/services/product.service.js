@@ -8,7 +8,7 @@ import { Type } from "../models/type.model.js";
 
 
 
-// Validates MongoDB ObjectIds for a list of items and cleans up files on error
+// Purpose: Validates MongoDB ObjectIds for a list of items and cleans up files on error
 export const validateMongoIds = (items, files) => {
   for (const { id, name, optional } of items) {
     if ((!optional && !id) || (id && !mongoose.Types.ObjectId.isValid(id))) {
@@ -18,7 +18,7 @@ export const validateMongoIds = (items, files) => {
   }
 };
 
-// Verifies that referenced models exist and cleans up files on error
+// Purpose: Verifies that referenced models exist and cleans up files on error
 export const checkModelRefs = async (items, files) => {
   for (const { model, id, name, optional } of items) {
     if (!id && optional) continue;
@@ -31,7 +31,7 @@ export const checkModelRefs = async (items, files) => {
   }
 };
 
-// Validates MongoDB ObjectIds for update operations
+// Purpose: Validates MongoDB ObjectIds for update operations
 export const updateValidateMongoIds = (items) => {
   for (const { id, name, optional } of items) {
     if ((!optional && !id) || (id && !mongoose.Types.ObjectId.isValid(id))) {
@@ -40,7 +40,7 @@ export const updateValidateMongoIds = (items) => {
   }
 };
 
-// Verifies that referenced models exist for update operations
+// Purpose: Verifies that referenced models exist for update operations
 export const updateCheckModelRefs = async (items) => {
   for (const { model, id, name, optional } of items) {
     if (!id && optional) continue;
@@ -52,7 +52,7 @@ export const updateCheckModelRefs = async (items) => {
   }
 };
 
-// Checks for duplicate records excluding a specific document ID
+// Purpose: Checks for duplicate records excluding a specific document ID
 export const updateCheckDuplicateRecord = async (
   model,
   filters,
@@ -66,7 +66,7 @@ export const updateCheckDuplicateRecord = async (
   }
 };
 
-// Checks for duplicate records and cleans up files on error
+// Purpose: Checks for duplicate records and cleans up files on error
 export const checkDuplicateRecord = async (
   model,
   filters,
@@ -82,7 +82,7 @@ export const checkDuplicateRecord = async (
   }
 };
 
-// Uploads multiple images to cloud storage and returns URLs and public IDs
+// Purpose: Uploads multiple images to cloud storage and returns URLs and public IDs
 export const uploadImages = async (files) => {
   if (!files || !Object.keys(files).length)
     throw new ApiError(400, "Images are required");
@@ -103,13 +103,12 @@ export const uploadImages = async (files) => {
   return uploaded;
 };
 
-// Prepares MongoDB query filters from request query parameters
+// Purpose: Prepares MongoDB query filters from request query parameters
 export const prepareQueryFilters = async (query, user = null) => {
   const match = {};
 
-  // Handle category name or slug filtering (only if categoryId is not already provided)
   if ((query.categoryName || query.categorySlug) && !query.categoryId) {
-    const categoryQuery = { isActive: true }; // Only active categories
+    const categoryQuery = { isActive: true };
     if (query.categoryName) {
       categoryQuery.name = { $regex: query.categoryName.trim(), $options: "i" };
     }
@@ -121,13 +120,10 @@ export const prepareQueryFilters = async (query, user = null) => {
     if (category) {
       match.categoryId = category._id;
     } else {
-      // If category not found, use a non-existent ObjectId to return empty results
-      // Using a random but valid ObjectId that won't match any document
       match.categoryId = new mongoose.Types.ObjectId("000000000000000000000000");
     }
   }
 
-  // Handle type name filtering
   if (query.typeName && !query.type) {
     const type = await Type.findOne({
       name: { $regex: query.typeName.trim(), $options: "i" },
@@ -136,7 +132,6 @@ export const prepareQueryFilters = async (query, user = null) => {
     if (type) {
       query.type = type._id.toString();
     } else {
-      // If type not found, use a non-existent ObjectId to return empty results
       match.type = new mongoose.Types.ObjectId("000000000000000000000000");
     }
   }
@@ -155,19 +150,16 @@ export const prepareQueryFilters = async (query, user = null) => {
 
   objectIdFields.forEach((key) => {
     if (query[key]) {
-      // Handle multiple IDs (comma-separated string or array)
       const ids = Array.isArray(query[key]) 
         ? query[key] 
         : String(query[key]).split(',').filter(Boolean);
       
-      // Filter valid ObjectIds
       const validIds = ids
         .map(id => String(id).trim())
         .filter(id => mongoose.Types.ObjectId.isValid(id))
         .map(id => new mongoose.Types.ObjectId(id));
       
       if (validIds.length > 0) {
-        // Use $in operator for multiple IDs, single ObjectId for one ID
         match[key] = validIds.length === 1 ? validIds[0] : { $in: validIds };
       }
     }
@@ -183,7 +175,6 @@ export const prepareQueryFilters = async (query, user = null) => {
   }
 
   if (query.status) {
-    // Normalize "published", "approved", and "active" to include both published states
     const normalized = String(query.status).toLowerCase();
     if (['active', 'approved', 'published'].includes(normalized)) {
       match.status = { $in: ['active', 'approved'] };
@@ -196,7 +187,6 @@ export const prepareQueryFilters = async (query, user = null) => {
     match.name = { $regex: query.search, $options: "i" };
   }
 
-  // Price range filtering
   if (query.minPrice || query.maxPrice) {
     match.price = {};
     if (query.minPrice) {
@@ -206,21 +196,19 @@ export const prepareQueryFilters = async (query, user = null) => {
       match.price.$lte = Number(query.maxPrice);
     }
   } else if (query.price) {
-    // Legacy support: single price filter (max price)
     match.price = { $lte: Number(query.price) };
   }
 
-  // Stock filtering
   if (query.inStock === 'true' || query.inStock === true) {
     match.stock = { $gt: 0 };
   }
 
-  // Default: Only show active/approved products for public pages
   if (!user || !user.roles?.includes('seller') && !user.roles?.includes('admin')) {
     if (!match.status) {
       match.status = { $in: ['active', 'approved'] };
     }
   }
+
 
   return match;
 };
@@ -271,12 +259,11 @@ export const lookupStages = [
   },
 }));
 
-// Fetches products using aggregation pipeline with filtering, pagination, and population
+// Purpose: Fetches products using aggregation pipeline with filtering and pagination
 export const fetchProducts = async (query, user = null) => {
   const match = await prepareQueryFilters(query, user);
 
-  // Handle sorting
-  let sortStage = { createdAt: -1 }; // Default: newest first
+  let sortStage = { createdAt: -1 };
   if (query.sort) {
     const sortValue = String(query.sort).toLowerCase();
     switch (sortValue) {
@@ -441,12 +428,12 @@ export const fetchProducts = async (query, user = null) => {
     },
   ];
 
+
   const result = await Product.aggregatePaginate(Product.aggregate(pipeline), {
     page: Number(query.page) || 1,
     limit: Number(query.limit) || 10,
   });
 
-  // Enrich products with trending offer pricing
   if (result.docs && result.docs.length > 0) {
     const { getTrendingOfferForProduct, calculateTrendingOfferDiscount } = await import('./trendingoffer.service.js');
     
@@ -461,7 +448,6 @@ export const fetchProducts = async (query, user = null) => {
               discountPercent: offer.discountPercent,
               offerId: offer._id,
             },
-            // Update price to show discounted price if trending offer exists
             discountedPrice: pricing.discountedPrice,
             hasTrendingOffer: true,
           };

@@ -1,16 +1,19 @@
+// Purpose: Chat routes for conversations, messaging, read status, and unread count management
 import { Router } from "express";
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 import { messageLimiter } from "../middlerwares/rateLimit.middlerware.js";
-import { validate, sendMessageValidation } from "../middlerwares/validation.middlerware.js";
+import { validate, sendMessageValidation, sendImageMessageValidation } from "../middlerwares/validation.middlerware.js";
 import {
   createConversation,
   getConversations,
   getMessages,
   sendMessage,
+  sendImageMessage,
   markAsRead,
   deleteConversation,
   getUnreadCount,
 } from "../controller/chat.controller.js";
+import { uploadChatImage } from "../middlerwares/multer.middlerware.js";
 
 const router = Router();
 
@@ -33,6 +36,16 @@ router
     verifyJWT,
     validate(sendMessageValidation),
     sendMessage
+  );
+
+router
+  .route("/message/image")
+  .post(
+    messageLimiter,
+    verifyJWT,
+    uploadChatImage,
+    validate(sendImageMessageValidation),
+    sendImageMessage
   );
 
 router

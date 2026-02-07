@@ -8,12 +8,36 @@ import { sendPayoutNotification } from './email.service.js';
 import { createNotification } from './notification.service.js';
 import { auditLog } from './audit.service.js';
 import { PlatformSettings } from '../models/platform.model.js';
+import { PAYOUT_HOLD_DAYS } from '../constants.js';
 import { logger } from '../utils/logger.js';
 import mongoose from 'mongoose';
 
 const DEFAULT_COMMISSION_RATE = 0.1; // 10% default
 
-// Retrieves commission rate from platform settings or returns default value
+// Purpose: Payout is allowed only if ALL are true (strict eligibility). PayPal OAuth mandatory; email-only invalid.
+export const isPayoutEligible = (seller) => {
+  if (!seller) return false;
+  return (
+    seller.paypalOAuthConnected === true &&
+    seller.paypalVerified === true &&
+    (seller.paypalMerchantId != null && seller.paypalMerchantId !== '') &&
+    seller.paymentsReceivable === true &&
+    seller.accountBlocked !== true
+  );
+};
+
+// Purpose: Log every payout attempt for audit (sellerId, amount, status, failureReason)
+const logPayoutAttempt = (sellerId, payoutAmount, payoutStatus, failureReason = null) => {
+  const payload = {
+    sellerId: sellerId?.toString?.(),
+    payoutAmount,
+    payoutStatus, // 'success' | 'blocked' | 'failed'
+    failureReason: failureReason || undefined,
+  };
+  logger.info('[PAYOUT_ATTEMPT]', payload);
+};
+
+// Purpose: Retrieves commission rate from platform settings or returns default value
 export const getCommissionRate = async () => {
   try {
     const setting = await PlatformSettings.findOne({ key: 'commission_rate' });
@@ -26,19 +50,19 @@ export const getCommissionRate = async () => {
   return DEFAULT_COMMISSION_RATE;
 };
 
-// Calculates commission amount based on current commission rate
+// Purpose: Calculates commission amount based on current commission rate
 export const calculateCommission = async (totalAmount) => {
   const commissionRate = await getCommissionRate();
   return totalAmount * commissionRate;
 };
 
-// Schedules a payout for seller with 15-day hold period
+// Purpose: Schedules a payout for seller with 15-day hold period
 export const schedulePayout = async (payoutData, session = null) => {
   const { orderId, sellerId, amount, orderCompletedAt } = payoutData;
 
-  // Use order completion date if provided, otherwise use current time
   const completionDate = orderCompletedAt ? new Date(orderCompletedAt) : new Date();
-  const holdUntil = new Date(completionDate.getTime() + 15 * 24 * 60 * 60 * 1000);
+  const holdDays = (typeof PAYOUT_HOLD_DAYS === 'number' && PAYOUT_HOLD_DAYS >= 0) ? PAYOUT_HOLD_DAYS : 15;
+  const holdUntil = new Date(completionDate.getTime() + holdDays * 24 * 60 * 60 * 1000);
   const grossAmount = amount;
   const commissionAmount = await calculateCommission(grossAmount);
   const netAmount = grossAmount - commissionAmount;
@@ -50,7 +74,7 @@ export const schedulePayout = async (payoutData, session = null) => {
     grossAmount: grossAmount,
     commissionAmount: commissionAmount,
     netAmount: netAmount,
-    currency: 'USD', // SECURITY: Hard-enforce USD currency
+    currency: 'USD',
     status: 'pending',
     holdUntil: holdUntil,
   };
@@ -61,12 +85,47 @@ export const schedulePayout = async (payoutData, session = null) => {
   return await Payout.create(payoutDataToSave);
 };
 
-// Processes scheduled payouts that are ready for release
+// Purpose: Adjust existing scheduled payout for partial refund (no new payout record). Used when payout is still within hold period.
+export const adjustPayoutForRefund = async (orderId, sellerId, deductGross, deductCommission, deductNet, refundedLicenseKeyIds = [], session = null) => {
+  const orderIdObj = mongoose.Types.ObjectId.isValid(orderId) ? new mongoose.Types.ObjectId(orderId) : orderId;
+  const sellerIdObj = mongoose.Types.ObjectId.isValid(sellerId) ? new mongoose.Types.ObjectId(sellerId) : sellerId;
+  const payouts = await Payout.find({
+    orderId: orderIdObj,
+    sellerId: sellerIdObj,
+    requestType: 'scheduled',
+    status: { $in: ['pending', 'hold'] },
+  }).session(session || null);
+
+  if (!payouts || payouts.length === 0) return null;
+  const payout = payouts[0];
+  const existingMeta = payout.metadata && typeof payout.metadata === 'object' ? payout.metadata : {};
+  const existingKeyIds = Array.isArray(existingMeta.refundedLicenseKeyIds) ? existingMeta.refundedLicenseKeyIds : [];
+  const keyIds = refundedLicenseKeyIds.map(id => (id && id.toString ? id.toString() : id));
+  const mergedKeyIds = [...new Set([...existingKeyIds, ...keyIds])];
+
+  payout.grossAmount = Math.round((payout.grossAmount - deductGross) * 100) / 100;
+  payout.commissionAmount = Math.round((payout.commissionAmount - deductCommission) * 100) / 100;
+  payout.netAmount = Math.round((payout.netAmount - deductNet) * 100) / 100;
+  payout.metadata = {
+    ...existingMeta,
+    adjustedForRefund: true,
+    refundedLicenseKeyIds: mergedKeyIds,
+  };
+  payout.notes = (payout.notes || '') ? `${payout.notes}; Adjusted for refund.` : 'Adjusted for partial refund.';
+  if (session) {
+    await payout.save({ session });
+  } else {
+    await payout.save();
+  }
+  return payout;
+};
+
+// Purpose: Processes scheduled payouts that are ready for release after hold period. Includes blocked payouts for re-check (auto-process when fixed).
 export const processScheduledPayouts = async () => {
   const now = new Date();
 
   const pendingPayouts = await Payout.find({
-    status: 'pending',
+    status: { $in: ['pending', 'blocked'] },
     requestType: 'scheduled',
     holdUntil: { $lte: now },
   }).populate('sellerId').populate('orderId');
@@ -78,88 +137,104 @@ export const processScheduledPayouts = async () => {
   };
 
   for (const payout of pendingPayouts) {
+    const payoutAmount = parseFloat(payout.netAmount.toFixed(2));
     try {
-      const seller = payout.sellerId;
-      
-      const payoutAccount = await SellerPayoutAccount.findOne({ sellerId: seller._id });
-      
-      if (!payoutAccount) {
+      let seller = payout.sellerId;
+      // Re-check seller status at payout time (never release if seller became blocked or PayPal invalid)
+      seller = await Seller.findById(seller._id);
+      if (!seller) {
+        logPayoutAttempt(payout.sellerId?.toString?.(), payoutAmount, 'blocked', 'Seller not found');
         payout.status = 'blocked';
-        payout.notes = 'Payout account not linked';
+        payout.blockReason = 'Seller not found';
+        payout.notes = 'Seller not found';
         await payout.save();
-        
-        const sellerUser = await User.findById(seller.userId);
-        if (sellerUser) {
-          await createNotification(
-            sellerUser._id,
-            'payout',
-            'Payout Blocked - Account Not Linked',
-            `Your payout of $${payout.netAmount} is blocked because no payout account is linked. Please link a payout account to receive payouts.`,
-            { payoutId: payout._id },
-            '/seller/payout-account'
-          );
-        }
-        
-        results.errors.push({
-          payoutId: payout._id,
-          error: 'Payout account not linked',
-        });
         results.failed++;
         continue;
       }
-      
-      if (payoutAccount.status === 'blocked') {
-        payout.status = 'blocked';
-        payout.notes = `Payout account blocked: ${payoutAccount.blockedReason || 'Blocked by admin'}`;
+
+      // Blocked payouts: re-check eligibility and that order has no refunded items; if eligible and no refunds, set to pending and process (funds never removed)
+      if (payout.status === 'blocked') {
+        if (!isPayoutEligible(seller)) {
+          results.failed++;
+          continue;
+        }
+        const orderForRefundCheck = await Order.findById(payout.orderId);
+        if (orderForRefundCheck) {
+          const hasRefundedItems = orderForRefundCheck.items.some(item => item.refunded === true);
+          if (hasRefundedItems || orderForRefundCheck.paymentStatus === 'refunded') {
+            payout.blockReason = 'Order contains refunded items - payout blocked';
+            payout.notes = payout.blockReason;
+            await payout.save();
+            results.errors.push({ payoutId: payout._id, error: payout.blockReason });
+            results.failed++;
+            continue;
+          }
+        }
+        payout.status = 'pending';
+        payout.blockReason = null;
+        payout.notes = '';
         await payout.save();
-        
+      }
+
+      if (!isPayoutEligible(seller)) {
+        const reason = !seller.paypalOAuthConnected
+          ? 'PayPal OAuth not connected'
+          : !seller.paypalVerified
+            ? 'PayPal account not verified or not eligible to receive payments'
+            : !seller.paypalMerchantId
+              ? 'PayPal merchant ID missing – connect PayPal (OAuth). Email-only is not accepted.'
+              : seller.paymentsReceivable !== true
+                ? 'PayPal account cannot receive payments'
+                : seller.accountBlocked
+                  ? 'Account blocked'
+                  : 'Seller not eligible for payout';
+        logPayoutAttempt(seller._id, payoutAmount, 'blocked', reason);
+        payout.status = 'blocked';
+        payout.blockReason = reason;
+        payout.notes = reason;
+        await payout.save();
         const sellerUser = await User.findById(seller.userId);
         if (sellerUser) {
           await createNotification(
             sellerUser._id,
             'payout',
-            'Payout Blocked - Account Blocked',
-            `Your payout of $${payout.netAmount} is blocked because your payout account is blocked. Reason: ${payoutAccount.blockedReason || 'Contact admin'}`,
+            'Payout On Hold',
+            `Your payout of $${payout.netAmount} is on hold: ${reason}. Connect and verify PayPal or contact support.`,
             { payoutId: payout._id },
             '/seller/payout-account'
           );
         }
-        
-        results.errors.push({
-          payoutId: payout._id,
-          error: 'Payout account is blocked',
-        });
+        results.errors.push({ payoutId: payout._id, error: reason });
         results.failed++;
         continue;
       }
-      
-      if (payoutAccount.status !== 'verified') {
+
+      if (!seller.paypalMerchantId) {
+        const reason = 'PayPal merchant ID missing – payouts require Connect PayPal (OAuth). Email-only is not accepted.';
+        logPayoutAttempt(seller._id, payoutAmount, 'blocked', reason);
         payout.status = 'blocked';
-        payout.notes = 'Payout account not verified';
+        payout.blockReason = reason;
+        payout.notes = reason;
         await payout.save();
-        
         const sellerUser = await User.findById(seller.userId);
         if (sellerUser) {
           await createNotification(
             sellerUser._id,
             'payout',
-            'Payout Blocked - Account Not Verified',
-            `Your payout of $${payout.netAmount} is blocked because your payout account is not verified. Please wait for admin verification.`,
+            'Payout Blocked - Connect PayPal',
+            `Your payout of $${payout.netAmount} cannot be sent. Please connect your PayPal account via "Connect PayPal" (email-only is not accepted).`,
             { payoutId: payout._id },
             '/seller/payout-account'
           );
         }
-        
-        results.errors.push({
-          payoutId: payout._id,
-          error: 'Payout account not verified',
-        });
+        results.errors.push({ payoutId: payout._id, error: reason });
         results.failed++;
         continue;
       }
 
       const sellerUser = await User.findById(seller.userId);
       if (!sellerUser) {
+        logPayoutAttempt(seller._id, payoutAmount, 'failed', 'Seller user account not found');
         results.errors.push({
           payoutId: payout._id,
           error: 'Seller user account not found',
@@ -168,76 +243,36 @@ export const processScheduledPayouts = async () => {
         continue;
       }
 
-      const { decryptKey } = await import('../utils/encryption.js');
-      let sellerEmail;
-      try {
-        sellerEmail = decryptKey(payoutAccount.encryptedAccountIdentifier);
-      } catch (error) {
-        logger.error(`Failed to decrypt account identifier for payout ${payout._id}`, error);
-        payout.status = 'failed';
-        payout.notes = 'Failed to decrypt payout account identifier';
-        payout.failedReason = error.message;
-        await payout.save();
-        
-        results.errors.push({
-          payoutId: payout._id,
-          error: 'Failed to decrypt account identifier',
-        });
-        results.failed++;
-        continue;
-      }
-      
-      if (!sellerEmail || sellerEmail === 'inactive') {
-        payout.status = 'blocked';
-        payout.notes = 'Payout account identifier missing';
-        await payout.save();
-        
-        results.errors.push({
-          payoutId: payout._id,
-          error: 'Payout account identifier missing',
-        });
-        results.failed++;
-        continue;
-      }
-
-      // FIX: Payout guardrails - validate amount format, check for refunds/disputes
-      // Validate payout amount is 2 decimals, USD
-      const payoutAmount = parseFloat(payout.netAmount.toFixed(2));
       if (isNaN(payoutAmount) || payoutAmount <= 0) {
         payout.status = 'blocked';
-        payout.notes = 'Invalid payout amount';
-        payout.failedReason = 'Payout amount must be a positive number';
+        payout.blockReason = payoutAmount === 0 ? 'Fully adjusted for refund(s)' : 'Invalid payout amount';
+        payout.notes = payoutAmount === 0 ? 'Payout reduced to zero by refund(s).' : 'Invalid payout amount';
+        payout.failedReason = payoutAmount <= 0 ? 'Payout amount must be a positive number' : undefined;
         await payout.save();
-        
-        results.errors.push({
-          payoutId: payout._id,
-          error: 'Invalid payout amount',
-        });
+        logPayoutAttempt(seller._id, payoutAmount, 'blocked', payout.blockReason);
+        results.errors.push({ payoutId: payout._id, error: payout.blockReason });
         results.failed++;
         continue;
       }
 
       if (payout.currency !== 'USD') {
         payout.status = 'blocked';
+        payout.blockReason = `Invalid currency: ${payout.currency}`;
         payout.notes = 'Payout currency must be USD';
         payout.failedReason = `Invalid currency: ${payout.currency}`;
         await payout.save();
-        
-        results.errors.push({
-          payoutId: payout._id,
-          error: 'Payout currency must be USD',
-        });
+        logPayoutAttempt(seller._id, payoutAmount, 'blocked', `Invalid currency: ${payout.currency}`);
+        results.errors.push({ payoutId: payout._id, error: 'Payout currency must be USD' });
         results.failed++;
         continue;
       }
 
-      // FIX: Check for refund/chargeback flags - do not payout if order has refunds/disputes
       const order = await Order.findById(payout.orderId);
       if (order) {
-        // Check if order has any refunded items
         const hasRefundedItems = order.items.some(item => item.refunded === true);
         if (hasRefundedItems) {
           payout.status = 'blocked';
+          payout.blockReason = 'Order has refunded items - payout blocked';
           payout.notes = 'Order has refunded items - payout blocked';
           payout.failedReason = 'Order contains refunded items';
           await payout.save();
@@ -250,9 +285,9 @@ export const processScheduledPayouts = async () => {
           continue;
         }
 
-        // Check if order payment status is refunded
         if (order.paymentStatus === 'refunded') {
           payout.status = 'blocked';
+          payout.blockReason = 'Order is refunded - payout blocked';
           payout.notes = 'Order is refunded - payout blocked';
           payout.failedReason = 'Order payment status is refunded';
           await payout.save();
@@ -265,30 +300,9 @@ export const processScheduledPayouts = async () => {
           continue;
         }
 
-        // Check for open disputes
-        const { Dispute } = await import('../models/dispute.model.js');
-        const openDisputes = await Dispute.find({
-          orderId: order._id,
-          status: { $in: ['open', 'investigating'] },
-        });
-
-        if (openDisputes.length > 0) {
-          payout.status = 'blocked';
-          payout.notes = `Order has ${openDisputes.length} open dispute(s) - payout blocked`;
-          payout.failedReason = 'Order has open disputes';
-          await payout.save();
-          
-          results.errors.push({
-            payoutId: payout._id,
-            error: 'Order has open disputes',
-            disputeCount: openDisputes.length,
-          });
-          results.failed++;
-          continue;
-        }
+        // Refunds are handled via negative payout entries; no separate block needed
       }
 
-      // FIX: Idempotency - check if payout already processed
       if (payout.status === 'released' && payout.paypalBatchId) {
         logger.warn(`Payout ${payout._id} already released (idempotent)`, {
           payoutId: payout._id,
@@ -298,13 +312,16 @@ export const processScheduledPayouts = async () => {
         continue;
       }
 
+      seller.lastPayoutAttempt = new Date();
+      await seller.save();
+
       let paypalPayout;
       try {
-        // FIX: Ensure amount is formatted to 2 decimals, USD
         paypalPayout = await createPayPalPayout(
-          sellerEmail,
-          payoutAmount, // Use validated 2-decimal amount
-          'USD' // Hard-enforce USD
+          seller.paypalMerchantId,
+          payoutAmount,
+          'USD',
+          { useMerchantId: true }
         );
 
         payout.status = 'released';
@@ -314,7 +331,7 @@ export const processScheduledPayouts = async () => {
         payout.processedAt = new Date();
         await payout.save();
 
-        // Log successful payout
+        logPayoutAttempt(seller._id, payoutAmount, 'success');
         await auditLog(
           seller.userId,
           'PAYOUT_RELEASED',
@@ -327,43 +344,40 @@ export const processScheduledPayouts = async () => {
           }
         );
       } catch (paypalError) {
-        // Handle PayPal API errors
-        logger.error(`PayPal payout failed for payout ${payout._id}`, paypalError);
-        
-        // Check if error is due to invalid email/account
         const errorMessage = paypalError.message || '';
-        if (errorMessage.includes('RECEIVER_UNREGISTERED') || 
+        logPayoutAttempt(seller._id, payoutAmount, 'failed', errorMessage);
+        logger.error(`PayPal payout failed for payout ${payout._id}`, paypalError);
+
+        if (errorMessage.includes('RECEIVER_UNREGISTERED') ||
             errorMessage.includes('INVALID_EMAIL') ||
             errorMessage.includes('RECEIVER_NOT_FOUND')) {
-          // Mark payout account as potentially invalid
-          const payoutAccount = await SellerPayoutAccount.findOne({ sellerId: seller._id });
-          if (payoutAccount && payoutAccount.status === 'verified') {
-            payoutAccount.status = 'pending';
-            payoutAccount.notes = `Account validation failed during payout: ${errorMessage}`;
-            await payoutAccount.save();
-            
-            // Notify admin
-            const adminUsers = await User.find({ roles: "admin", isActive: true });
-            for (const admin of adminUsers) {
-              await createNotification(
-                admin._id,
-                "payout",
-                "Payout Account Validation Failed",
-                `Seller ${seller.shopName} payout failed due to invalid PayPal account. Please review.`,
-                { sellerId: seller._id, accountId: payoutAccount._id, payoutId: payout._id },
-                `/admin/sellers/${seller._id}/payout-account`
-              );
-            }
+          const pa = await SellerPayoutAccount.findOne({ sellerId: seller._id });
+          if (pa && pa.status === 'verified') {
+            pa.status = 'pending';
+            pa.notes = `Account validation failed during payout: ${errorMessage}`;
+            await pa.save();
+          }
+          seller.paypalVerified = false;
+          await seller.save();
+          const adminUsers = await User.find({ roles: "admin", isActive: true });
+          for (const admin of adminUsers) {
+            await createNotification(
+              admin._id,
+              "payout",
+              "Payout Account Validation Failed",
+              `Seller ${seller.shopName} payout failed due to invalid PayPal account. Please review.`,
+              { sellerId: seller._id, accountId: pa?._id, payoutId: payout._id },
+              `/admin/sellers/${seller._id}/payout-account`
+            );
           }
         }
-        
+
         payout.status = 'failed';
         payout.notes = `PayPal payout failed: ${errorMessage}`;
         payout.failedReason = errorMessage;
         payout.processedAt = new Date();
         await payout.save();
-        
-        // Log failed payout
+
         await auditLog(
           seller.userId,
           'PAYOUT_FAILED',
@@ -374,8 +388,8 @@ export const processScheduledPayouts = async () => {
             error: errorMessage,
           }
         );
-        
-        throw paypalError; // Re-throw to be caught by outer try-catch
+
+        throw paypalError;
       }
 
       try {
@@ -397,7 +411,6 @@ export const processScheduledPayouts = async () => {
     } catch (error) {
       logger.error(`Failed to process payout ${payout._id}`, error);
       
-      // Check if we should retry (only for non-account-related errors)
       const errorMessage = error.message || '';
       const isAccountError = errorMessage.includes('RECEIVER_UNREGISTERED') || 
                             errorMessage.includes('INVALID_EMAIL') ||
@@ -431,7 +444,6 @@ export const processScheduledPayouts = async () => {
         payout.processedAt = new Date();
         await payout.save();
         
-        // Notify seller of permanent failure (only if not account-related)
         if (!isAccountError) {
           const sellerUser = await User.findById(seller.userId);
           if (sellerUser) {
@@ -459,11 +471,10 @@ export const processScheduledPayouts = async () => {
   return results;
 };
 
-// Calculates seller's payout balance including pending, available, and paid amounts
+// Purpose: Calculates seller's payout balance including pending, available, and paid amounts
 export const getSellerBalance = async (sellerId) => {
   const now = new Date();
 
-  // Available balance: Payouts that have passed the hold period (holdUntil <= now)
   const availablePayouts = await Payout.aggregate([
     {
       $match: {
@@ -483,7 +494,6 @@ export const getSellerBalance = async (sellerId) => {
     },
   ]);
 
-  // Pending balance: Payouts still on hold (holdUntil > now or null)
   const pendingPayouts = await Payout.aggregate([
     {
       $match: {
@@ -491,8 +501,8 @@ export const getSellerBalance = async (sellerId) => {
         status: 'pending',
         requestType: 'scheduled',
         $or: [
-          { holdUntil: { $gt: now } }, // Still on hold
-          { holdUntil: null }, // No hold date set (shouldn't happen but handle gracefully)
+          { holdUntil: { $gt: now } },
+          { holdUntil: null },
         ],
       },
     },
@@ -502,12 +512,11 @@ export const getSellerBalance = async (sellerId) => {
         totalPending: { $sum: '$netAmount' },
         totalCommission: { $sum: '$commissionAmount' },
         count: { $sum: 1 },
-        earliestReleaseDate: { $min: '$holdUntil' }, // Earliest date when any payout becomes available
+        earliestReleaseDate: { $min: '$holdUntil' },
       },
     },
   ]);
 
-  // Released balance: Already processed payouts
   const releasedPayouts = await Payout.aggregate([
     {
       $match: {
@@ -524,21 +533,49 @@ export const getSellerBalance = async (sellerId) => {
     },
   ]);
 
-  const available = availablePayouts[0]?.totalAvailable || 0;
+  const refundDeductions = await Payout.aggregate([
+    {
+      $match: {
+        sellerId: new mongoose.Types.ObjectId(sellerId),
+        requestType: 'scheduled',
+        status: 'blocked',
+        netAmount: { $lt: 0 },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        totalDeduction: { $sum: '$netAmount' },
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+  const deductionAmount = refundDeductions[0]?.totalDeduction || 0;
+
+  const available = (availablePayouts[0]?.totalAvailable || 0) + deductionAmount;
   const pendingAmount = pendingPayouts[0]?.totalPending || 0;
   const earliestReleaseDate = pendingPayouts[0]?.earliestReleaseDate;
 
-  // Calculate days until next available payout
   let daysUntilAvailable = null;
   if (earliestReleaseDate) {
     const diffTime = earliestReleaseDate.getTime() - now.getTime();
     daysUntilAvailable = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }
 
+  const seller = await Seller.findById(sellerId).select('paypalVerified accountBlocked paypalOAuthConnected paypalMerchantId');
+  const payoutEligible = isPayoutEligible(seller);
+  let holdReason = null;
+  if (!payoutEligible && (available > 0 || pendingAmount > 0)) {
+    if (!seller?.paypalOAuthConnected) holdReason = 'Connect your PayPal account to withdraw.';
+    else if (!seller?.paypalVerified) holdReason = 'Your PayPal account must be verified to receive payouts.';
+    else if (seller?.accountBlocked) holdReason = 'Payouts are on hold. Contact support.';
+    else holdReason = 'Payout is not available at this time.';
+  }
+
   return {
-    available, // Available for withdrawal (past hold period)
+    available,
     pending: {
-      amount: pendingAmount, // On hold (not yet available)
+      amount: pendingAmount,
       commission: pendingPayouts[0]?.totalCommission || 0,
       count: pendingPayouts[0]?.count || 0,
       earliestReleaseDate: earliestReleaseDate || null,
@@ -549,10 +586,12 @@ export const getSellerBalance = async (sellerId) => {
       count: releasedPayouts[0]?.count || 0,
     },
     totalEarnings: available + pendingAmount + (releasedPayouts[0]?.totalReleased || 0),
+    payoutEligible,
+    holdReason,
   };
 };
 
-// Retrieves seller's payout history with pagination
+// Purpose: Retrieves seller's payout history with pagination
 export const getSellerPayouts = async (sellerId, page = 1, limit = 20) => {
   const skip = (page - 1) * limit;
 

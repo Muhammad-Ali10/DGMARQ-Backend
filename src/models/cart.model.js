@@ -6,6 +6,12 @@ const cartItemSchema = new Schema(
     sellerId: { type: Schema.Types.ObjectId, ref: "Seller", required: true },
     qty: { type: Number, default: 1 },
     unitPrice: { type: Number, required: true },
+    originalPrice: { type: Number, required: true },
+    discountedPrice: { type: Number, required: true },
+    discountAmount: { type: Number, default: 0 },
+    discountPercentage: { type: Number, default: 0 },
+    discountType: { type: String, enum: ['product_discount', 'flash_deal', 'trending_offer', null], default: null },
+    discountSource: { type: Schema.Types.ObjectId, default: null },
   },
   { _id: false }
 );
@@ -23,4 +29,5 @@ const cartSchema = new Schema(
   { timestamps: true }
 );
 
+// Purpose: Stores shopping cart items and pricing details for users
 export const Cart = mongoose.model("Cart", cartSchema);

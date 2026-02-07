@@ -1,4 +1,3 @@
-// Load environment variables FIRST before any other imports
 import 'dotenv/config'
 import ConnectDB from "./db/index.js"
 import { app } from "./app.js"
@@ -7,6 +6,7 @@ import { scheduleDailyPayouts } from "./jobs/payout.job.js"
 import { logger } from "./utils/logger.js"
 import http from 'http'
 
+// Purpose: Bootstrap application by connecting to database, initializing Socket.IO, and starting server
 ;(async () => {
     try {
         await ConnectDB()
@@ -18,17 +18,13 @@ import http from 'http'
 
         const PORT = process.env.PORT || 8000
         
-        // Create HTTP server for Socket.IO
         const server = http.createServer(app);
         
-        // Initialize Socket.IO
         const io = initializeSocketIO(server);
-        app.set('io', io); // Make io available in routes if needed
+        app.set('io', io);
         
-        // Schedule background jobs
         if (process.env.REDIS_URL) {
           scheduleDailyPayouts();
-          // Initialize email worker (imported automatically when email.job.js loads)
           const { emailWorker } = await import('./jobs/email.job.js');
           if (emailWorker) {
             logger.success('Email worker initialized');

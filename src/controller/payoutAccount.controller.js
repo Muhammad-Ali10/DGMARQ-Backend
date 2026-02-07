@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import crypto from "crypto";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
@@ -8,98 +9,179 @@ import { User } from "../models/user.model.js";
 import { createNotification } from "../services/notification.service.js";
 import { auditLog } from "../services/audit.service.js";
 import { encryptKey, decryptKey } from "../utils/encryption.js";
-import { validatePayPalEmail } from "../services/payment.service.js";
+import {
+  getPayPalOAuthAuthorizeUrl,
+  exchangePayPalOAuthCode,
+  getPayPalUserInfo,
+} from "../services/payment.service.js";
 
-// Links a PayPal payout account for a seller with encryption and admin notification
-const linkPayoutAccount = asyncHandler(async (req, res) => {
+const PAYPAL_CONNECT_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function createPayPalConnectState(sellerId) {
+  const secret = process.env.ACCESS_TOKEN_SECRET || process.env.ENCRYPTION_KEY || "paypal-connect-secret";
+  const payload = `${sellerId}.${Date.now()}`;
+  const hmac = crypto.createHmac("sha256", secret).update(payload).digest("hex");
+  return Buffer.from(`${payload}.${hmac}`).toString("base64url");
+}
+
+function verifyPayPalConnectState(state) {
+  if (!state || typeof state !== "string") return null;
+  const secret = process.env.ACCESS_TOKEN_SECRET || process.env.ENCRYPTION_KEY || "paypal-connect-secret";
+  let payload;
+  try {
+    payload = Buffer.from(state, "base64url").toString("utf8");
+  } catch {
+    return null;
+  }
+  const parts = payload.split(".");
+  if (parts.length !== 3) return null;
+  const [sellerId, tsStr, hmac] = parts;
+  const expectedHmac = crypto.createHmac("sha256", secret).update(`${sellerId}.${tsStr}`).digest("hex");
+  if (crypto.timingSafeEqual(Buffer.from(hmac, "hex"), Buffer.from(expectedHmac, "hex")) !== true) return null;
+  const ts = parseInt(tsStr, 10);
+  if (Number.isNaN(ts) || Date.now() - ts > PAYPAL_CONNECT_STATE_TTL_MS) return null;
+  return sellerId;
+}
+
+// Purpose: Redirects seller to PayPal OAuth (Connect PayPal). No manual email.
+const getPayPalConnectUrl = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const { accountType, accountIdentifier, accountName, bankName } = req.body;
-
-  if (!accountType || !accountIdentifier) {
-    throw new ApiError(400, "accountType and accountIdentifier are required");
-  }
-
-  if (accountType !== "paypal") {
-    throw new ApiError(400, "Only PayPal accounts are supported. Please provide a PayPal account.");
-  }
-
-  // Validate PayPal email format and attempt API validation
-  const emailValidation = await validatePayPalEmail(accountIdentifier);
-  if (!emailValidation.isValid) {
-    throw new ApiError(400, `Invalid PayPal email: ${emailValidation.error}`);
-  }
-
   const seller = await Seller.findOne({ userId });
   if (!seller) {
     throw new ApiError(404, "Seller profile not found");
   }
+  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+  const redirectUri = `${baseUrl}/api/v1/payout-account/paypal/callback`;
+  const state = createPayPalConnectState(seller._id.toString());
+  const url = getPayPalOAuthAuthorizeUrl(state, redirectUri);
+  return res.status(200).json(
+    new ApiResponse(200, { url, state }, "PayPal connect URL generated")
+  );
+});
 
-  const encryptedAccountIdentifier = encryptKey(accountIdentifier);
+// Purpose: PayPal OAuth callback – exchange code, fetch userinfo, update seller (paypalMerchantId, paypalVerified, etc.).
+const paypalOAuthCallback = asyncHandler(async (req, res) => {
+  const { code, state } = req.query;
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  const successRedirect = `${frontendUrl}/seller/payout-account?paypal=success`;
+  const errorRedirect = `${frontendUrl}/seller/payout-account?paypal=error`;
+
+  if (!code || !state) {
+    return res.redirect(`${errorRedirect}&reason=missing_params`);
+  }
+
+  const sellerId = verifyPayPalConnectState(state);
+  if (!sellerId) {
+    return res.redirect(`${errorRedirect}&reason=invalid_state`);
+  }
+
+  const seller = await Seller.findById(sellerId);
+  if (!seller) {
+    return res.redirect(`${errorRedirect}&reason=seller_not_found`);
+  }
+
+  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+  const redirectUri = `${baseUrl}/api/v1/payout-account/paypal/callback`;
+
+  let tokenData;
+  try {
+    tokenData = await exchangePayPalOAuthCode(code, redirectUri);
+  } catch (err) {
+    return res.redirect(`${errorRedirect}&reason=oauth_failed`);
+  }
+
+  let userInfo;
+  try {
+    userInfo = await getPayPalUserInfo(tokenData.access_token);
+  } catch (err) {
+    return res.redirect(`${errorRedirect}&reason=userinfo_failed`);
+  }
+
+  const {
+    paypalMerchantId,
+    paypalEmail,
+    accountStatus,
+    paymentsReceivable,
+  } = userInfo;
+
+  const accountStatusNormalized = (accountStatus || "").toLowerCase();
+  const isVerified =
+    paymentsReceivable === true &&
+    (accountStatusNormalized === "verified");
+
+  seller.paypalMerchantId = paypalMerchantId || null;
+  seller.paypalEmail = paypalEmail || null;
+  seller.paypalOAuthConnected = true;
+  seller.paymentsReceivable = paymentsReceivable === true;
+  seller.accountStatus = accountStatusNormalized || "unverified";
+  seller.oauthConnectedAt = new Date();
+  seller.paypalVerified = isVerified;
+  seller.payoutAccount = paypalEmail || "paypal-connected";
+  await seller.save();
 
   let payoutAccount = await SellerPayoutAccount.findOne({ sellerId: seller._id });
-
+  const encryptedEmail = encryptKey(paypalEmail || "");
   if (payoutAccount) {
-    payoutAccount.accountType = accountType;
-    payoutAccount.accountIdentifier = accountIdentifier;
-    payoutAccount.encryptedAccountIdentifier = encryptedAccountIdentifier;
-    payoutAccount.provider = 'paypal';
-    if (accountName) payoutAccount.accountName = accountName;
-    if (bankName) payoutAccount.bankName = bankName;
-    payoutAccount.status = 'pending';
-    payoutAccount.verifiedAt = null;
+    payoutAccount.accountType = "paypal";
+    payoutAccount.accountIdentifier = paypalEmail || paypalMerchantId || "";
+    payoutAccount.encryptedAccountIdentifier = encryptedEmail;
+    payoutAccount.provider = "paypal";
+    payoutAccount.status = isVerified ? "verified" : "pending";
+    payoutAccount.verifiedAt = isVerified ? new Date() : null;
     payoutAccount.verifiedBy = null;
     payoutAccount.linkedAt = new Date();
     await payoutAccount.save();
   } else {
     payoutAccount = await SellerPayoutAccount.create({
       sellerId: seller._id,
-      accountType,
-      accountIdentifier,
-      encryptedAccountIdentifier,
-      provider: 'paypal',
-      accountName,
-      bankName,
-      status: 'pending',
+      accountType: "paypal",
+      accountIdentifier: paypalEmail || paypalMerchantId || "",
+      encryptedAccountIdentifier: encryptedEmail,
+      provider: "paypal",
+      status: isVerified ? "verified" : "pending",
+      verifiedAt: isVerified ? new Date() : null,
       linkedAt: new Date(),
     });
   }
 
-  seller.payoutAccount = accountIdentifier;
-  await seller.save();
+  const sellerUser = await User.findById(seller.userId);
+  await auditLog(seller.userId, "PAYOUT_ACCOUNT_PAYPAL_OAUTH", "PayPal connected via OAuth", {
+    sellerId: seller._id,
+    paypalMerchantId,
+    paypalVerified: isVerified,
+  });
 
-  const adminUsers = await User.find({ roles: "admin", isActive: true });
-  for (const admin of adminUsers) {
+  if (sellerUser) {
     await createNotification(
-      admin._id,
+      sellerUser._id,
       "payout",
-      "New Payout Account Linked",
-      `Seller ${req.user.name} has linked a ${accountType} payout account. Verification required.`,
-      { sellerId: seller._id, accountId: payoutAccount._id },
-      `/admin/sellers/${seller._id}/payout-account`
+      isVerified ? "PayPal account connected and verified" : "PayPal account connected – verification pending",
+      isVerified
+        ? "Your PayPal account is connected and verified. You can receive payouts."
+        : "Your PayPal account is connected. Some account features may be limited until fully verified.",
+      { sellerId: seller._id },
+      "/seller/payout-account"
     );
   }
 
-  await auditLog(userId, "PAYOUT_ACCOUNT_LINKED", `Linked ${accountType} payout account`, {
-    sellerId: seller._id,
-    accountId: payoutAccount._id,
-    accountType,
-  });
-
-  const maskedAccount = {
-    ...payoutAccount.toObject(),
-    accountIdentifier: maskAccountIdentifier(payoutAccount.accountIdentifier, payoutAccount.accountType || payoutAccount.provider),
-    encryptedAccountIdentifier: undefined,
-  };
-
-  return res.status(200).json(
-    new ApiResponse(200, {
-      payoutAccount: maskedAccount,
-      message: "Payout account linked successfully. It will be verified by an admin shortly.",
-    }, "Payout account linked successfully")
-  );
+  return res.redirect(successRedirect);
 });
 
-// Retrieves seller's payout account status with masked sensitive information
+// Purpose: Reject manual PayPal email link – sellers must use Connect PayPal (OAuth).
+const linkPayoutAccount = asyncHandler(async (req, res) => {
+  const { accountType } = req.body || {};
+
+  if (accountType === "paypal") {
+    throw new ApiError(
+      400,
+      "PayPal cannot be linked by email. Please use 'Connect PayPal' to sign in with your PayPal account. Email-only accounts are not accepted for payouts."
+    );
+  }
+
+  throw new ApiError(400, "Only PayPal is supported. Please use 'Connect PayPal' to link your account.");
+});
+
+// Purpose: Retrieves seller's payout account status (OAuth + legacy) with masked sensitive information
 const getMyPayoutAccount = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
@@ -110,30 +192,50 @@ const getMyPayoutAccount = asyncHandler(async (req, res) => {
 
   const payoutAccount = await SellerPayoutAccount.findOne({ sellerId: seller._id });
 
-  if (!payoutAccount) {
+  const hasAccount = seller.paypalOAuthConnected || !!payoutAccount;
+  const payoutEligible =
+    seller.paypalVerified === true &&
+    seller.accountBlocked !== true &&
+    seller.paypalOAuthConnected === true;
+
+  if (!hasAccount) {
     return res.status(200).json(
       new ApiResponse(200, {
         hasAccount: false,
-        message: "No payout account linked. Please link an account to receive payouts.",
+        paypalOAuthConnected: false,
+        paypalVerified: false,
+        accountBlocked: !!seller.accountBlocked,
+        payoutEligible: false,
+        message: "Connect your PayPal account to receive payouts. Email-only accounts are not accepted.",
       }, "No payout account found")
     );
   }
 
-  const maskedAccount = {
-    ...payoutAccount.toObject(),
-    accountIdentifier: maskAccountIdentifier(payoutAccount.accountIdentifier, payoutAccount.accountType || payoutAccount.provider),
-    encryptedAccountIdentifier: undefined,
-  };
+  const maskedAccount = payoutAccount
+    ? {
+        ...payoutAccount.toObject(),
+        accountIdentifier: maskAccountIdentifier(payoutAccount.accountIdentifier, payoutAccount.accountType || payoutAccount.provider),
+        encryptedAccountIdentifier: undefined,
+      }
+    : null;
 
   return res.status(200).json(
     new ApiResponse(200, {
       hasAccount: true,
+      paypalOAuthConnected: !!seller.paypalOAuthConnected,
+      paypalVerified: !!seller.paypalVerified,
+      accountBlocked: !!seller.accountBlocked,
+      payoutEligible,
+      accountStatus: seller.accountStatus || null,
+      paymentsReceivable: seller.paymentsReceivable,
+      oauthConnectedAt: seller.oauthConnectedAt || null,
+      paypalEmail: seller.paypalEmail ? maskAccountIdentifier(seller.paypalEmail, "paypal") : null,
       payoutAccount: maskedAccount,
     }, "Payout account retrieved successfully")
   );
 });
 
-// Verifies a payout account and notifies the seller
+// Purpose: Verifies a payout account and notifies the seller
 const verifyPayoutAccount = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
   const { accountId } = req.params;
@@ -156,7 +258,6 @@ const verifyPayoutAccount = asyncHandler(async (req, res) => {
   payoutAccount.verifiedBy = adminId;
   await payoutAccount.save();
 
-  // Notify seller
   const sellerUser = await User.findById(payoutAccount.sellerId.userId);
   if (sellerUser) {
     await createNotification(
@@ -179,7 +280,7 @@ const verifyPayoutAccount = asyncHandler(async (req, res) => {
   );
 });
 
-// Blocks or unblocks a payout account and notifies the seller
+// Purpose: Blocks or unblocks a payout account and notifies the seller
 const blockPayoutAccount = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
   const { accountId } = req.params;
@@ -203,11 +304,25 @@ const blockPayoutAccount = asyncHandler(async (req, res) => {
     payoutAccount.blockedAt = new Date();
     payoutAccount.blockedBy = adminId;
     payoutAccount.blockedReason = blockReason || "Blocked by admin";
+    if (payoutAccount.sellerId && payoutAccount.sellerId._id) {
+      const sellerDoc = await Seller.findById(payoutAccount.sellerId._id);
+      if (sellerDoc) {
+        sellerDoc.accountBlocked = true;
+        await sellerDoc.save();
+      }
+    }
   } else {
     payoutAccount.status = payoutAccount.verifiedAt ? 'verified' : 'pending';
     payoutAccount.blockedAt = null;
     payoutAccount.blockedBy = null;
     payoutAccount.blockedReason = null;
+    if (payoutAccount.sellerId && payoutAccount.sellerId._id) {
+      const sellerDoc = await Seller.findById(payoutAccount.sellerId._id);
+      if (sellerDoc) {
+        sellerDoc.accountBlocked = false;
+        await sellerDoc.save();
+      }
+    }
   }
   await payoutAccount.save();
 
@@ -241,7 +356,7 @@ const blockPayoutAccount = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves a seller's payout account details for admin
+// Purpose: Retrieves a seller's payout account details for admin
 const getSellerPayoutAccount = asyncHandler(async (req, res) => {
   const { sellerId } = req.params;
 
@@ -275,9 +390,9 @@ const getSellerPayoutAccount = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves all sellers with their payout account status and optional filtering
+// Purpose: Retrieves all sellers with their payout account status and optional filtering
 const getSellersPayoutStatus = asyncHandler(async (req, res) => {
-  const { hasAccount, isVerified, page = 1, limit = 20 } = req.query;
+  const { hasAccount, isVerified, page = 1, limit = 10 } = req.query;
 
   const match = {};
   if (hasAccount === "true") {
@@ -344,7 +459,7 @@ const getSellersPayoutStatus = asyncHandler(async (req, res) => {
   );
 });
 
-// Masks account identifier for secure display in responses
+// Purpose: Masks account identifier for secure display in responses
 const maskAccountIdentifier = (identifier, accountType) => {
   if (!identifier) return "";
   
@@ -362,6 +477,8 @@ const maskAccountIdentifier = (identifier, accountType) => {
 export {
   linkPayoutAccount,
   getMyPayoutAccount,
+  getPayPalConnectUrl,
+  paypalOAuthCallback,
   verifyPayoutAccount,
   blockPayoutAccount,
   getSellerPayoutAccount,

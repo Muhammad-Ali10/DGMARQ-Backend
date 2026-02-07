@@ -2,7 +2,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { getSoftwarePageData } from "../services/software.service.js";
 
-// Get Software page data (all sections in one optimized request)
+// Purpose: Retrieves Software page data with all sections in one optimized request
 const getSoftwarePage = asyncHandler(async (req, res) => {
   const data = await getSoftwarePageData();
   

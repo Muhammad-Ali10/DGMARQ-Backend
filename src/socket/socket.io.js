@@ -10,27 +10,21 @@ import { Seller } from '../models/seller.model.js';
 import { sendSupportMessage, markMessagesAsRead } from '../services/support.service.js';
 import { createNotification } from '../services/notification.service.js';
 
-/**
- * Initialize Socket.IO server
- */
+// Purpose: Initialize and configure Socket.IO server with authentication and real-time messaging
 export const initializeSocketIO = (server) => {
-  // Exact allowed origins for CORS
   const allowedOrigins = process.env.NODE_ENV === 'production'
-    ? ['https://dgmarq.com'] // Production: exact origin
-    : ['http://localhost:5173']; // Development: localhost
+    ? ['https://dgmarq.com']
+    : ['http://localhost:5173'];
   
   const io = new Server(server, {
     cors: {
       origin: (origin, callback) => {
-        // Allow requests with no origin (mobile apps, Postman, etc.)
         if (!origin) return callback(null, true);
         
-        // Check if origin exactly matches allowed origins
         if (allowedOrigins.includes(origin)) {
           return callback(null, true);
         }
         
-        // In development, allow localhost variants
         if (process.env.NODE_ENV !== 'production') {
           if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
             return callback(null, true);
@@ -43,13 +37,12 @@ export const initializeSocketIO = (server) => {
       methods: ['GET', 'POST'],
       allowedHeaders: ['Content-Type', 'Authorization'],
     },
-    transports: ['websocket', 'polling'], // Support both for compatibility
-    allowEIO3: true, // Allow Engine.IO v3 clients for compatibility
-    pingTimeout: 60000, // 60 seconds
-    pingInterval: 25000, // 25 seconds
+    transports: ['websocket', 'polling'],
+    allowEIO3: true,
+    pingTimeout: 60000,
+    pingInterval: 25000,
   });
 
-  // Authentication middleware for Socket.IO
   io.use(async (socket, next) => {
       try {
         const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
@@ -74,13 +67,10 @@ export const initializeSocketIO = (server) => {
   });
 
   io.on('connection', (socket) => {
-    // User connected - join personal room
     socket.join(`user:${socket.userId}`);
 
-    // Join conversation room
     socket.on('join_conversation', async (conversationId) => {
       try {
-        // Verify user has access to this conversation (use lean() for faster lookup)
         const [conversation, seller] = await Promise.all([
           Conversation.findById(conversationId).lean(),
           Seller.findOne({ userId: socket.userId }).lean()
@@ -106,12 +96,10 @@ export const initializeSocketIO = (server) => {
       }
     });
 
-    // Leave conversation room
     socket.on('leave_conversation', (conversationId) => {
       socket.leave(`conversation:${conversationId}`);
     });
 
-    // Send message
     socket.on('send_message', async (data) => {
       try {
         const { conversationId, messageText, messageType = 'text', attachment = null } = data;
@@ -121,7 +109,6 @@ export const initializeSocketIO = (server) => {
           return;
         }
 
-        // Verify conversation exists (use lean() for faster lookup)
         const [conversation, seller] = await Promise.all([
           Conversation.findById(conversationId).lean(),
           Seller.findOne({ userId: socket.userId }).lean()
@@ -132,11 +119,9 @@ export const initializeSocketIO = (server) => {
           return;
         }
 
-        // Determine receiver
         let receiverId;
 
         if (conversation.buyerId.toString() === socket.userId.toString()) {
-          // Buyer sending to seller - get seller's user ID
           const sellerRecord = await Seller.findById(conversation.sellerId);
           if (!sellerRecord) {
             socket.emit('error', { message: 'Seller not found' });
@@ -152,7 +137,6 @@ export const initializeSocketIO = (server) => {
           return;
         }
 
-        // Create message
         const message = await Message.create({
           conversationId,
           senderId: socket.userId,
@@ -164,18 +148,15 @@ export const initializeSocketIO = (server) => {
           sentAt: new Date(),
         });
 
-        // Update conversation (use updateOne for better performance with lean document)
         await Conversation.findByIdAndUpdate(conversationId, {
           lastMessage: messageText,
           lastMessageAt: new Date(),
         });
 
-        // Populate message
         const populatedMessage = await Message.findById(message._id)
           .populate('senderId', 'name email profileImage')
           .populate('receiverId', 'name email profileImage');
 
-        // Create notification in database (non-blocking)
         const senderName = populatedMessage.senderId?.name || populatedMessage.senderId?.username || 'Someone';
         const messagePreview = messageText.length > 50 ? messageText.substring(0, 50) + '...' : messageText;
         
@@ -191,23 +172,18 @@ export const initializeSocketIO = (server) => {
             senderName: senderName,
             senderAvatar: populatedMessage.senderId?.profileImage || null,
           },
-          `/user/chat?conversation=${conversationId}`, // Default route, frontend will adjust based on role
+          `/user/chat?conversation=${conversationId}`,
           'high'
         ).catch((err) => {
-          // Log error but don't block message sending
-          // Notification creation failure shouldn't prevent message delivery
         });
 
-        // Emit to conversation room
         io.to(`conversation:${conversationId}`).emit('new_message', populatedMessage);
 
-        // Emit to receiver's personal room (for notifications)
         io.to(`user:${receiverId}`).emit('message_received', {
           conversationId,
           message: populatedMessage,
         });
 
-        // Emit notification update to receiver
         io.to(`user:${receiverId}`).emit('notification_new', {
           type: 'chat',
           conversationId: conversationId.toString(),
@@ -219,10 +195,8 @@ export const initializeSocketIO = (server) => {
       }
     });
 
-    // Mark messages as read
     socket.on('mark_read', async (conversationId) => {
       try {
-        // Use parallel queries for better performance
         const [conversation, seller] = await Promise.all([
           Conversation.findById(conversationId).lean(),
           Seller.findOne({ userId: socket.userId }).lean()
@@ -232,7 +206,6 @@ export const initializeSocketIO = (server) => {
           return;
         }
 
-        // Mark messages as read in background (non-blocking with timeout)
         Message.updateMany(
           { 
             conversationId: new mongoose.Types.ObjectId(conversationId), 
@@ -241,12 +214,11 @@ export const initializeSocketIO = (server) => {
           },
           { isRead: true }
         )
-          .maxTimeMS(5000) // 5 second timeout
-          .hint({ conversationId: 1, receiverId: 1, isRead: 1 }) // Use compound index
+          .maxTimeMS(5000)
+          .hint({ conversationId: 1, receiverId: 1, isRead: 1 })
           .exec()
-          .catch(() => {}); // Ignore errors
+          .catch(() => {});
 
-        // Update conversation unread count in background (non-blocking)
         const isBuyer = conversation.buyerId.toString() === socket.userId.toString();
         const isSeller = seller && conversation.sellerId.toString() === seller._id.toString();
         
@@ -254,26 +226,22 @@ export const initializeSocketIO = (server) => {
           Conversation.findByIdAndUpdate(conversationId, {
             unreadCountBuyer: 0,
             lastReadByBuyer: new Date()
-          }).catch(() => {}); // Non-blocking
+          }).catch(() => {});
         } else if (isSeller) {
           Conversation.findByIdAndUpdate(conversationId, {
             unreadCountSeller: 0,
             lastReadBySeller: new Date()
-          }).catch(() => {}); // Non-blocking
+          }).catch(() => {});
         }
 
-        // Notify other user (non-blocking)
         io.to(`conversation:${conversationId}`).emit('messages_read', {
           conversationId,
           readBy: socket.userId,
         });
       } catch (error) {
-        // Don't emit error for mark_read failures - it's a background operation
-        // Logging can be added here if needed for debugging
       }
     });
 
-    // Typing indicator
     socket.on('typing', (data) => {
       const { conversationId, isTyping } = data;
       socket.to(`conversation:${conversationId}`).emit('user_typing', {
@@ -282,9 +250,6 @@ export const initializeSocketIO = (server) => {
       });
     });
 
-    // ==================== SUPPORT CHAT EVENTS ====================
-
-    // Join support chat room
     socket.on('join_support_chat', async (chatId) => {
       try {
         const chat = await SupportChat.findById(chatId);
@@ -297,9 +262,7 @@ export const initializeSocketIO = (server) => {
         const isOwner = chat.userId && chat.userId.toString() === socket.userId.toString();
         const isAssignedAdmin = chat.adminId && chat.adminId.toString() === socket.userId.toString();
 
-        // Verify access
         if (!isAdmin && !isOwner && !isAssignedAdmin) {
-          // Check if guest session matches
           if (!chat.guestSessionId || chat.guestSessionId !== socket.handshake.auth.guestSessionId) {
             socket.emit('error', { message: 'Access denied' });
             return;
@@ -309,7 +272,6 @@ export const initializeSocketIO = (server) => {
         socket.join(`support_chat:${chatId}`);
         socket.emit('joined_support_chat', { chatId });
 
-        // If admin joins, mark messages as read
         if (isAdmin || isAssignedAdmin) {
           await markMessagesAsRead(chatId, socket.userId, true);
         } else {
@@ -320,12 +282,10 @@ export const initializeSocketIO = (server) => {
       }
     });
 
-    // Leave support chat room
     socket.on('leave_support_chat', (chatId) => {
       socket.leave(`support_chat:${chatId}`);
     });
 
-    // Send support message
     socket.on('send_support_message', async (data) => {
       try {
         const { chatId, messageText, messageType = 'text', guestName, guestEmail, guestSessionId } = data;
@@ -349,7 +309,6 @@ export const initializeSocketIO = (server) => {
         const isAdmin = socket.user?.roles?.includes('admin');
         const userId = socket.userId || guestSessionId;
 
-        // Verify access
         const isOwner = chat.userId && chat.userId.toString() === socket.userId?.toString();
         const isAssignedAdmin = chat.adminId && chat.adminId.toString() === socket.userId?.toString();
         const isGuest = chat.guestSessionId === guestSessionId;
@@ -359,7 +318,6 @@ export const initializeSocketIO = (server) => {
           return;
         }
 
-        // Send message
         const message = await sendSupportMessage({
           chatId,
           userId,
@@ -370,14 +328,11 @@ export const initializeSocketIO = (server) => {
           guestEmail,
         });
 
-        // Populate message
         const populatedMessage = await SupportMessage.findById(message._id)
           .populate('senderId', 'name email profileImage');
 
-        // Emit to support chat room
         io.to(`support_chat:${chatId}`).emit('support_message', populatedMessage);
 
-        // Emit to admin room if unassigned (for notification)
         if (!chat.adminId && isAdmin) {
           io.to('admin_support').emit('new_support_chat_message', {
             chatId,
@@ -391,7 +346,6 @@ export const initializeSocketIO = (server) => {
       }
     });
 
-    // Mark support messages as read
     socket.on('mark_support_read', async (chatId) => {
       try {
         const chat = await SupportChat.findById(chatId);
@@ -404,7 +358,6 @@ export const initializeSocketIO = (server) => {
 
         await markMessagesAsRead(chatId, userId, isAdmin);
 
-        // Notify other participants
         io.to(`support_chat:${chatId}`).emit('support_messages_read', {
           chatId,
           readBy: userId,
@@ -415,7 +368,6 @@ export const initializeSocketIO = (server) => {
       }
     });
 
-    // Support chat typing indicator
     socket.on('support_typing', (data) => {
       const { chatId, isTyping } = data;
       socket.to(`support_chat:${chatId}`).emit('support_user_typing', {
@@ -424,7 +376,6 @@ export const initializeSocketIO = (server) => {
       });
     });
 
-    // Admin joins admin support room (to receive notifications)
     socket.on('join_admin_support', () => {
       if (socket.user?.roles?.includes('admin')) {
         socket.join('admin_support');
@@ -434,9 +385,7 @@ export const initializeSocketIO = (server) => {
       }
     });
 
-    // Disconnect
     socket.on('disconnect', () => {
-      // User disconnected - cleanup handled automatically
     });
   });
 

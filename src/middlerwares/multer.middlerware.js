@@ -1,6 +1,6 @@
-
 import multer from "multer";
-
+import { ApiError } from "../utils/ApiError.js";
+import { CHAT_IMAGE_LIMITS } from "../utils/cloudinary.js";
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -11,4 +11,18 @@ const storage = multer.diskStorage({
     }
 });
 
-export const upload = multer({ storage: storage });
+const memoryStorage = multer.memoryStorage();
+
+const chatImageFilter = (req, file, cb) => {
+  if (!CHAT_IMAGE_LIMITS.allowedTypes.includes(file.mimetype)) {
+    return cb(new ApiError(400, 'Invalid file type. Only JPEG, PNG, GIF, WebP allowed'), false);
+  }
+  cb(null, true);
+};
+
+export const upload = multer({ storage });
+export const uploadChatImage = multer({
+  storage: memoryStorage,
+  limits: { fileSize: CHAT_IMAGE_LIMITS.maxSize },
+  fileFilter: chatImageFilter,
+}).single('image');

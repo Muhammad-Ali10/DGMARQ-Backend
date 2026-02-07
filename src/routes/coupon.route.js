@@ -1,3 +1,4 @@
+// Purpose: Coupon routes for creating, validating, managing, and deleting discount coupons
 import express from "express";
 import {
   createCoupon,
@@ -14,14 +15,11 @@ import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
 const router = express.Router();
 
-// Apply rate limiting to all routes
 router.use(apiRateLimiter);
 
-// Public routes
 router.get("/active", getActiveCoupons);
 router.post("/validate", validateCoupon);
 
-// Admin routes
 router.post("/", verifyJWT, authorizeRoles("admin"), createCoupon);
 router.get("/", verifyJWT, authorizeRoles("admin"), getAllCoupons);
 router.get("/:couponId", verifyJWT, authorizeRoles("admin"), getCouponById);

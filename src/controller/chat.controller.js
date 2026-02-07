@@ -8,10 +8,9 @@ import { Order } from "../models/order.model.js";
 import { Seller } from "../models/seller.model.js";
 import { User } from "../models/user.model.js";
 import { createNotification } from "../services/notification.service.js";
+import { uploadChatImageFromBuffer } from "../utils/cloudinary.js";
 
-/**
- * Create conversation (with or without order)
- */
+// Purpose: Creates a new conversation between buyer and seller
 const createConversation = asyncHandler(async (req, res) => {
   const buyerId = req.user._id;
   const { sellerId, orderId, productId } = req.body;
@@ -20,13 +19,11 @@ const createConversation = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Seller ID is required");
   }
 
-  // Verify seller exists
   const seller = await Seller.findById(sellerId);
   if (!seller) {
     throw new ApiError(404, "Seller not found");
   }
 
-  // If orderId is provided, verify order exists and belongs to buyer
   if (orderId) {
     const order = await Order.findOne({
       _id: orderId,
@@ -38,18 +35,15 @@ const createConversation = asyncHandler(async (req, res) => {
     }
   }
 
-  // Check if conversation already exists
   let existingConversation;
   
   if (orderId) {
-    // Check for conversation with this orderId
     existingConversation = await Conversation.findOne({
       buyerId,
       sellerId,
       orderId,
     });
   } else {
-    // For conversations without order, check if there's an existing active conversation without orderId
     existingConversation = await Conversation.findOne({
       buyerId,
       sellerId,
@@ -72,7 +66,6 @@ const createConversation = asyncHandler(async (req, res) => {
     );
   }
 
-  // Create conversation
   const conversationData = {
     buyerId,
     sellerId,
@@ -100,17 +93,14 @@ const createConversation = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get user conversations
- */
+// Purpose: Retrieves all conversations for the authenticated user
 const getConversations = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const { role } = req.query; // 'buyer' or 'seller'
+  const { role } = req.query;
 
   let match = {};
 
   if (role === "seller") {
-    // Get seller record
     const seller = await Seller.findOne({ userId });
     if (!seller) {
       throw new ApiError(404, "Seller account not found");
@@ -120,18 +110,15 @@ const getConversations = asyncHandler(async (req, res) => {
     match.buyerId = userId;
   }
 
-  // Optimize: Use lean() for faster queries, limit populated fields
-  // Use hint to ensure index usage for better performance
   const conversationsQuery = Conversation.find(match)
     .populate("buyerId", "name email profileImage")
     .populate("sellerId", "shopName shopLogo")
     .populate("orderId", "totalAmount orderStatus")
     .populate("productId", "name slug images")
     .sort({ lastMessageAt: -1, createdAt: -1 })
-    .lean() // Use lean() for 2-3x faster queries
-    .maxTimeMS(5000); // Max 5 seconds for conversation list
+    .lean()
+    .maxTimeMS(5000);
   
-  // Add index hint based on match criteria
   if (match.buyerId) {
     conversationsQuery.hint({ buyerId: 1, lastMessageAt: -1 });
   } else if (match.sellerId) {
@@ -145,31 +132,25 @@ const getConversations = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get messages for a conversation
- * OPTIMIZED: Uses cursor-based pagination for better performance on large datasets
- * Initial load: 15 messages (reduced from 25 for faster load time)
- */
+// Purpose: Retrieves messages for a conversation with cursor-based pagination
 const getMessages = asyncHandler(async (req, res) => {
   const { conversationId } = req.params;
   const userId = req.user._id;
-  const { page = 1, limit = 15, cursor } = req.query; // Reduced default to 15 for faster initial load
+  const { cursor, limit: limitParam } = req.query;
 
   if (!mongoose.Types.ObjectId.isValid(conversationId)) {
     throw new ApiError(400, "Invalid conversation ID");
   }
 
-  // Parallelize: Fetch conversation and seller lookup simultaneously
   const [conversation, seller] = await Promise.all([
-    Conversation.findById(conversationId).lean(), // Use lean() for faster lookup
-    Seller.findOne({ userId }).lean() // Use lean() for faster lookup
+    Conversation.findById(conversationId).select('buyerId sellerId').lean(),
+    Seller.findOne({ userId }).select('_id').lean()
   ]);
 
   if (!conversation) {
     throw new ApiError(404, "Conversation not found");
   }
 
-  // Check if user is buyer or seller
   const isBuyer = conversation.buyerId.toString() === userId.toString();
   const isSeller = seller && conversation.sellerId.toString() === seller._id.toString();
 
@@ -177,113 +158,92 @@ const getMessages = asyncHandler(async (req, res) => {
     throw new ApiError(403, "You don't have access to this conversation");
   }
 
-  // Optimize message limit: 15 for initial load, max 30 for pagination
-  const messageLimit = Math.min(parseInt(limit) || 15, 30);
+  const messageLimit = Math.min(Math.max(parseInt(limitParam) || 20, 1), 50);
   
-  // Build query with cursor-based pagination for better performance
   let query = { 
     conversationId: new mongoose.Types.ObjectId(conversationId),
     isDeleted: { $ne: true }
   };
   
-  // Cursor-based pagination: if cursor provided, fetch messages before that timestamp
   if (cursor && !isNaN(new Date(cursor).getTime())) {
     query.sentAt = { $lt: new Date(cursor) };
   }
   
-  // OPTIMIZED: Query using compound index {conversationId: 1, sentAt: -1}
   const messagesQuery = Message.find(query)
-    .select("conversationId senderId receiverId messageText messageType attachment isRead sentAt createdAt")
-    .sort({ sentAt: -1 }) // Uses compound index {conversationId: 1, sentAt: -1}
-    .limit(messageLimit + 1) // Fetch one extra to check if there are more
-    .lean() // Use lean() for faster query
-    .maxTimeMS(5000) // Reduced timeout for faster failure
-    .hint({ conversationId: 1, sentAt: -1 }); // Use hint to ensure index usage
+    .select("_id conversationId senderId receiverId messageText messageType attachment uploadStatus isRead sentAt")
+    .sort({ sentAt: -1 })
+    .limit(messageLimit + 1)
+    .lean()
+    .maxTimeMS(5000)
+    .hint({ conversationId: 1, sentAt: -1 });
   
-  // Execute query
   let messages = await messagesQuery;
   
-  // Check if there are more messages
   const hasMore = messages.length > messageLimit;
   if (hasMore) {
-    messages = messages.slice(0, messageLimit); // Remove the extra message
+    messages = messages.slice(0, messageLimit);
   }
   
-  // Populate senderId and receiverId AFTER lean() for better performance
   const senderIds = [...new Set(messages.map(m => m.senderId?.toString()).filter(Boolean))];
   const receiverIds = [...new Set(messages.map(m => m.receiverId?.toString()).filter(Boolean))];
   const userIds = [...new Set([...senderIds, ...receiverIds])];
   
-  // Fetch user data in parallel ONLY if we have messages (optimized)
   if (messages.length > 0 && userIds.length > 0) {
-    // Use find() with $in - MongoDB optimizes this efficiently with indexes
     const users = await User.find({ 
       _id: { $in: userIds.map(id => new mongoose.Types.ObjectId(id)) } 
     })
-      .select("name email profileImage")
+      .select("_id name profileImage")
       .lean()
-      .maxTimeMS(3000) // Reduced timeout
-      .hint({ _id: 1 }); // Explicitly use _id index
+      .maxTimeMS(3000)
+      .hint({ _id: 1 });
     
-    // Create user lookup map for O(1) access
     const userMap = new Map(users.map(u => [u._id.toString(), u]));
     
-    // Attach user data to messages
     messages = messages.map(msg => {
       const senderIdStr = msg.senderId?.toString();
       const receiverIdStr = msg.receiverId?.toString();
-      
       return {
         ...msg,
-        senderId: userMap.get(senderIdStr) || { _id: msg.senderId, name: 'Unknown', email: null, profileImage: null },
-        receiverId: userMap.get(receiverIdStr) || { _id: msg.receiverId, name: 'Unknown', email: null, profileImage: null },
+        senderId: userMap.get(senderIdStr) || { _id: msg.senderId, name: 'Unknown', profileImage: null },
+        receiverId: userMap.get(receiverIdStr) || { _id: msg.receiverId, name: 'Unknown', profileImage: null },
       };
     });
   }
   
-  // Get oldest message timestamp for next cursor
   const nextCursor = messages.length > 0 ? messages[messages.length - 1].sentAt : null;
   
-  // CRITICAL PERFORMANCE FIX: Mark as read in background (don't block response)
   if (isBuyer) {
     Message.updateMany(
       { conversationId, receiverId: userId, isRead: false },
       { isRead: true }
-    ).catch(() => {}); // Ignore errors in background operation
+    ).catch(() => {});
     
     Conversation.findByIdAndUpdate(conversationId, {
       unreadCountBuyer: 0,
       lastReadByBuyer: new Date()
-    }).catch(() => {}); // Ignore errors in background operation
+    }).catch(() => {});
   } else if (isSeller) {
     Message.updateMany(
       { conversationId, receiverId: userId, isRead: false },
       { isRead: true }
-    ).catch(() => {}); // Ignore errors in background operation
+    ).catch(() => {});
     
     Conversation.findByIdAndUpdate(conversationId, {
       unreadCountSeller: 0,
       lastReadBySeller: new Date()
-    }).catch(() => {}); // Ignore errors in background operation
+    }).catch(() => {});
   }
 
-  // Return response immediately with cursor-based pagination
   return res.status(200).json(
     new ApiResponse(200, {
-      messages: messages.reverse(), // Reverse to show oldest first
-      pagination: {
-        page: parseInt(page),
-        limit: messageLimit,
-        hasMore: hasMore,
-        nextCursor: nextCursor ? nextCursor.toISOString() : null, // Cursor for next page
-      },
+      messages: messages.reverse(),
+      nextCursor: nextCursor ? nextCursor.toISOString() : null,
+      hasMore,
     }, "Messages retrieved successfully")
   );
 });
 
-/**
- * Send message (REST endpoint - Socket.IO will also handle this)
- */
+// Purpose: Sends a message in a conversation via REST endpoint
 const sendMessage = asyncHandler(async (req, res) => {
   const { conversationId, messageText, messageType = "text", attachment = null } = req.body;
   const senderId = req.user._id;
@@ -292,18 +252,15 @@ const sendMessage = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Conversation ID and message text are required");
   }
 
-  // Verify conversation exists and user has access
   const conversation = await Conversation.findById(conversationId);
   if (!conversation) {
     throw new ApiError(404, "Conversation not found");
   }
 
-  // Determine receiver
   const seller = await Seller.findOne({ userId: senderId });
   let receiverId;
 
         if (conversation.buyerId.toString() === senderId.toString()) {
-          // Buyer sending to seller - get seller's user ID
           const seller = await Seller.findById(conversation.sellerId);
           if (!seller) {
             throw new ApiError(404, "Seller not found");
@@ -311,14 +268,12 @@ const sendMessage = asyncHandler(async (req, res) => {
           receiverId = seller.userId;
     conversation.unreadCountSeller = (conversation.unreadCountSeller || 0) + 1;
   } else if (seller && conversation.sellerId.toString() === seller._id.toString()) {
-    // Seller sending to buyer
     receiverId = conversation.buyerId;
     conversation.unreadCountBuyer = (conversation.unreadCountBuyer || 0) + 1;
   } else {
     throw new ApiError(403, "You don't have access to this conversation");
   }
 
-  // Create message
   const message = await Message.create({
     conversationId,
     senderId,
@@ -330,7 +285,6 @@ const sendMessage = asyncHandler(async (req, res) => {
     sentAt: new Date(),
   });
 
-  // Update conversation
   conversation.lastMessage = messageText;
   conversation.lastMessageAt = new Date();
   await conversation.save();
@@ -339,7 +293,6 @@ const sendMessage = asyncHandler(async (req, res) => {
     .populate("senderId", "name email profileImage")
     .populate("receiverId", "name email profileImage");
 
-  // Create notification in database (non-blocking)
   const senderName = populatedMessage.senderId?.name || populatedMessage.senderId?.username || 'Someone';
   const messagePreview = messageText.length > 50 ? messageText.substring(0, 50) + '...' : messageText;
   
@@ -355,27 +308,21 @@ const sendMessage = asyncHandler(async (req, res) => {
       senderName: senderName,
       senderAvatar: populatedMessage.senderId?.profileImage || null,
     },
-    `/user/chat?conversation=${conversationId}`, // Default route, frontend will adjust based on role
+    `/user/chat?conversation=${conversationId}`,
     'high'
   ).catch((err) => {
-    // Log error but don't block message sending
-    // Notification creation failure shouldn't prevent message delivery
   });
 
-  // Emit socket event for real-time delivery
   if (req.app.get('io')) {
     const io = req.app.get('io');
     
-    // Emit to conversation room
     io.to(`conversation:${conversationId}`).emit('new_message', populatedMessage);
     
-    // Emit to receiver's personal room (for notifications)
     io.to(`user:${receiverId}`).emit('message_received', {
       conversationId,
       message: populatedMessage,
     });
 
-    // Emit notification update to receiver
     io.to(`user:${receiverId}`).emit('notification_new', {
       type: 'chat',
       conversationId: conversationId.toString(),
@@ -387,15 +334,141 @@ const sendMessage = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Mark messages as read
- * OPTIMIZED: Fast response, background updates for large batches
- */
+const sendImageMessage = asyncHandler(async (req, res) => {
+  const { conversationId, messageText = '' } = req.body;
+  const senderId = req.user._id;
+  const imageFile = req.file;
+
+  if (!conversationId || !imageFile?.buffer) {
+    throw new ApiError(400, "Conversation ID and image file are required");
+  }
+
+  const conversation = await Conversation.findById(conversationId);
+  if (!conversation) {
+    throw new ApiError(404, "Conversation not found");
+  }
+
+  const seller = await Seller.findOne({ userId: senderId });
+  let receiverId;
+
+  if (conversation.buyerId.toString() === senderId.toString()) {
+    const sellerRecord = await Seller.findById(conversation.sellerId);
+    if (!sellerRecord) {
+      throw new ApiError(404, "Seller not found");
+    }
+    receiverId = sellerRecord.userId;
+    conversation.unreadCountSeller = (conversation.unreadCountSeller || 0) + 1;
+  } else if (seller && conversation.sellerId.toString() === seller._id.toString()) {
+    receiverId = conversation.buyerId;
+    conversation.unreadCountBuyer = (conversation.unreadCountBuyer || 0) + 1;
+  } else {
+    throw new ApiError(403, "You don't have access to this conversation");
+  }
+
+  const message = await Message.create({
+    conversationId,
+    senderId,
+    receiverId,
+    messageText: messageText.trim() || 'Image',
+    messageType: 'image',
+    uploadStatus: 'pending',
+    isRead: false,
+    sentAt: new Date(),
+  });
+
+  conversation.lastMessage = messageText.trim() || 'Image';
+  conversation.lastMessageAt = new Date();
+  await conversation.save();
+
+  const populatedMessage = await Message.findById(message._id)
+    .populate("senderId", "name email profileImage")
+    .populate("receiverId", "name email profileImage");
+
+  const senderName = populatedMessage.senderId?.name || populatedMessage.senderId?.username || 'Someone';
+  const messagePreview = (messageText.trim() || 'Image').length > 50 
+    ? (messageText.trim() || 'Image').substring(0, 50) + '...' 
+    : (messageText.trim() || 'Image');
+
+  createNotification(
+    receiverId,
+    'chat',
+    `New message from ${senderName}`,
+    messagePreview,
+    {
+      messageId: message._id.toString(),
+      conversationId: conversationId.toString(),
+      senderId: senderId.toString(),
+      senderName: senderName,
+      senderAvatar: populatedMessage.senderId?.profileImage || null,
+    },
+    `/user/chat?conversation=${conversationId}`,
+    'high'
+  ).catch(() => {});
+
+  if (req.app.get('io')) {
+    const io = req.app.get('io');
+    io.to(`conversation:${conversationId}`).emit('new_message', populatedMessage);
+    io.to(`user:${receiverId}`).emit('message_received', {
+      conversationId,
+      message: populatedMessage,
+    });
+    io.to(`user:${receiverId}`).emit('notification_new', {
+      type: 'chat',
+      conversationId: conversationId.toString(),
+    });
+  }
+
+  res.status(201).json(
+    new ApiResponse(201, populatedMessage, "Message sent successfully")
+  );
+
+  setImmediate(async () => {
+    try {
+      const result = await uploadChatImageFromBuffer(imageFile.buffer);
+      const updated = await Message.findByIdAndUpdate(
+        message._id,
+        {
+          attachment: result.url,
+          uploadStatus: 'completed',
+          attachmentMetadata: {
+            publicId: result.publicId,
+            width: result.width,
+            height: result.height,
+          },
+        },
+        { new: true }
+      )
+        .populate("senderId", "name email profileImage")
+        .populate("receiverId", "name email profileImage");
+
+      if (req.app.get('io') && updated) {
+        const io = req.app.get('io');
+        io.to(`conversation:${conversationId}`).emit('message_updated', updated);
+        io.to(`user:${receiverId}`).emit('message_updated', updated);
+      }
+    } catch (err) {
+      const failedMsg = await Message.findByIdAndUpdate(
+        message._id,
+        { uploadStatus: 'failed' },
+        { new: true }
+      )
+        .populate("senderId", "name email profileImage")
+        .populate("receiverId", "name email profileImage");
+      if (req.app.get('io') && failedMsg) {
+        const io = req.app.get('io');
+        const payload = failedMsg.toObject ? failedMsg.toObject() : failedMsg;
+        io.to(`conversation:${conversationId}`).emit('message_updated', payload);
+        io.to(`user:${receiverId}`).emit('message_updated', payload);
+      }
+    }
+  });
+});
+
+// Purpose: Marks all messages in a conversation as read for the user
 const markAsRead = asyncHandler(async (req, res) => {
   const { conversationId } = req.params;
   const userId = req.user._id;
 
-  // Parallel queries for faster response
   const [conversation, seller] = await Promise.all([
     Conversation.findById(conversationId).lean(),
     Seller.findOne({ userId }).lean()
@@ -413,14 +486,10 @@ const markAsRead = asyncHandler(async (req, res) => {
     throw new ApiError(403, "You don't have access to this conversation");
   }
 
-  // Return response immediately - don't wait for slow updateMany operations
-  // This prevents timeouts on conversations with many unread messages
   res.status(200).json(
     new ApiResponse(200, null, "Messages marked as read")
   );
 
-  // Perform updates in background (non-blocking)
-  // Use updateMany with timeout to prevent hanging
   Message.updateMany(
     { 
       conversationId: new mongoose.Types.ObjectId(conversationId), 
@@ -429,12 +498,11 @@ const markAsRead = asyncHandler(async (req, res) => {
     },
     { isRead: true }
   )
-    .maxTimeMS(5000) // 5 second timeout
-    .hint({ conversationId: 1, receiverId: 1, isRead: 1 }) // Use compound index
+    .maxTimeMS(5000)
+    .hint({ conversationId: 1, receiverId: 1, isRead: 1 })
     .exec()
-    .catch(() => {}); // Ignore errors in background
+    .catch(() => {});
 
-  // Update conversation unread count in background
   if (isBuyer) {
     Conversation.findByIdAndUpdate(conversationId, {
       unreadCountBuyer: 0,
@@ -448,9 +516,7 @@ const markAsRead = asyncHandler(async (req, res) => {
   }
 });
 
-/**
- * Delete/archive conversation
- */
+// Purpose: Archives a conversation for the user
 const deleteConversation = asyncHandler(async (req, res) => {
   const { conversationId } = req.params;
   const userId = req.user._id;
@@ -468,14 +534,12 @@ const deleteConversation = asyncHandler(async (req, res) => {
     throw new ApiError(403, "You don't have access to this conversation");
   }
 
-  // Archive instead of delete
   if (isBuyer) {
     conversation.archivedByBuyer = true;
   } else {
     conversation.archivedBySeller = true;
   }
 
-  // If both archived, mark as closed
   if (conversation.archivedByBuyer && conversation.archivedBySeller) {
     conversation.status = "closed";
   }
@@ -487,10 +551,7 @@ const deleteConversation = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get unread message count
- * OPTIMIZED: Uses aggregation pipeline instead of loading all conversations
- */
+// Purpose: Retrieves the total unread message count for the user
 const getUnreadCount = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const seller = await Seller.findOne({ userId }).lean();
@@ -498,14 +559,12 @@ const getUnreadCount = asyncHandler(async (req, res) => {
   let totalUnread = 0;
 
   if (seller) {
-    // Seller: aggregate unread counts using MongoDB aggregation (much faster)
     const result = await Conversation.aggregate([
       { $match: { sellerId: seller._id } },
       { $group: { _id: null, total: { $sum: { $ifNull: ["$unreadCountSeller", 0] } } } }
     ]);
     totalUnread = result[0]?.total || 0;
   } else {
-    // Buyer: aggregate unread counts using MongoDB aggregation (much faster)
     const result = await Conversation.aggregate([
       { $match: { buyerId: userId } },
       { $group: { _id: null, total: { $sum: { $ifNull: ["$unreadCountBuyer", 0] } } } }
@@ -523,6 +582,7 @@ export {
   getConversations,
   getMessages,
   sendMessage,
+  sendImageMessage,
   markAsRead,
   deleteConversation,
   getUnreadCount,

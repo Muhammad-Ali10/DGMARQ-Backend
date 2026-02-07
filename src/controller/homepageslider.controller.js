@@ -8,10 +8,7 @@ import { getActiveSliders, validateSliderData } from "../services/homepageslider
 import { upload } from "../middlerwares/multer.middlerware.js";
 import { fileUploader } from "../utils/cloudinary.js";
 
-/**
- * Create homepage slider (admin only)
- * POST /api/v1/homepage-slider
- */
+// Purpose: Creates a new homepage slider with image upload and product linking
 const createHomepageSlider = asyncHandler(async (req, res) => {
   const { title, productId, link, order, slideIndex } = req.body;
 
@@ -19,13 +16,11 @@ const createHomepageSlider = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Title is required");
   }
 
-  // Validate slider data (productId is now optional)
   const validation = await validateSliderData({ productId, link });
   if (!validation.valid) {
     throw new ApiError(400, validation.error);
   }
 
-  // Handle image upload
   if (!req.file) {
     throw new ApiError(400, "Image is required");
   }
@@ -33,13 +28,11 @@ const createHomepageSlider = asyncHandler(async (req, res) => {
   const uploadResult = await fileUploader(req.file.path);
   const imageUrl = uploadResult.url;
 
-  // If slideIndex not provided, get the next available index
   let finalSlideIndex = slideIndex !== undefined ? parseInt(slideIndex) : 0;
   if (isNaN(finalSlideIndex)) {
     finalSlideIndex = 0;
   }
 
-  // Ensure slideIndex is within valid range (0-4 for 5 positions)
   if (finalSlideIndex < 0 || finalSlideIndex > 4) {
     finalSlideIndex = 0;
   }
@@ -62,10 +55,7 @@ const createHomepageSlider = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get all active homepage sliders (public)
- * GET /api/v1/homepage-slider
- */
+// Purpose: Retrieves all active homepage sliders for public display
 const getHomepageSliders = asyncHandler(async (req, res) => {
   const sliders = await getActiveSliders();
 
@@ -74,10 +64,7 @@ const getHomepageSliders = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get homepage slider by ID
- * GET /api/v1/homepage-slider/:id
- */
+// Purpose: Retrieves a specific homepage slider by its ID
 const getHomepageSliderById = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -96,10 +83,7 @@ const getHomepageSliderById = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Update homepage slider (admin only)
- * PATCH /api/v1/homepage-slider/:id
- */
+// Purpose: Updates an existing homepage slider with new data or image
 const updateHomepageSlider = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { title, productId, link, order, isActive, slideIndex } = req.body;
@@ -113,12 +97,10 @@ const updateHomepageSlider = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Homepage slider not found");
   }
 
-  // Update fields
   if (title !== undefined) {
     slider.title = title;
   }
 
-  // Validate productId if provided (now optional)
   if (productId !== undefined || link !== undefined) {
     const validation = await validateSliderData({
       productId: productId !== undefined ? productId : slider.productId,
@@ -166,10 +148,7 @@ const updateHomepageSlider = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Delete homepage slider (admin only)
- * DELETE /api/v1/homepage-slider/:id
- */
+// Purpose: Deletes a homepage slider by its ID
 const deleteHomepageSlider = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -189,12 +168,9 @@ const deleteHomepageSlider = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get all homepage sliders (admin only)
- * GET /api/v1/homepage-slider/admin/all
- */
+// Purpose: Retrieves all homepage sliders with pagination for admin management
 const getAllHomepageSliders = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20, isActive } = req.query;
+  const { page = 1, limit = 10, isActive } = req.query;
 
   const match = {};
   if (isActive !== undefined) {

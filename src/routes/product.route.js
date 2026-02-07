@@ -15,6 +15,7 @@ import {
 } from "../controller/product.controller.js";
 import { getSoftwarePage } from "../controller/software.controller.js";
 
+// Purpose: Product CRUD, image management, license keys, and stock sync routes
 
 const router = Router();
 
@@ -41,13 +42,10 @@ router.route("/update-product/:id").patch(
   updateProduct
 );
 
-// Use optionalJWT to allow sellers to filter their own products
 router.route("/get-products").get(optionalJWT, getProducts);
 
-// Software page endpoint (public, optimized with caching)
 router.route("/pages/software").get(getSoftwarePage);
 
-// Get single product by ID or slug (must be before other :id routes)
 router.route("/:identifier").get(getProductById);
 
 router.route("/:id/upload-keys").post(

@@ -4,7 +4,7 @@ import { User } from '../models/user.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import mongoose from 'mongoose';
 
-// Creates a support chat conversation for logged-in or anonymous users
+// Purpose: Creates a support chat conversation for logged-in or anonymous users
 export const createSupportConversation = async (data) => {
   const { userId, guestEmail, guestName, guestSessionId, subject, initialMessage } = data;
 
@@ -70,7 +70,7 @@ export const createSupportConversation = async (data) => {
   return { chat: supportChat, message, isNew: true };
 };
 
-// Assigns an admin to a support chat conversation
+// Purpose: Assigns an admin to a support chat conversation
 export const assignAdminToChat = async (chatId, adminId) => {
   const chat = await SupportChat.findById(chatId);
   if (!chat) {
@@ -93,7 +93,7 @@ export const assignAdminToChat = async (chatId, adminId) => {
   return chat;
 };
 
-// Retrieves all support chats with optional filtering for admin
+// Purpose: Retrieves all support chats with optional filtering for admin
 export const getAllSupportChats = async (filters = {}) => {
   const { status, priority, assignedTo, page = 1, limit = 20 } = filters;
 
@@ -133,7 +133,7 @@ export const getAllSupportChats = async (filters = {}) => {
   };
 };
 
-// Retrieves support chat messages with access verification
+// Purpose: Retrieves support chat messages with access verification
 export const getSupportMessages = async (chatId, userId = null, isAdmin = false) => {
   const chat = await SupportChat.findById(chatId);
   if (!chat) {
@@ -156,7 +156,7 @@ export const getSupportMessages = async (chatId, userId = null, isAdmin = false)
   return messages;
 };
 
-// Sends a message in a support chat conversation
+// Purpose: Sends a message in a support chat conversation
 export const sendSupportMessage = async (data) => {
   const { chatId, userId, isAdmin, messageText, messageType = 'text', guestName, guestEmail } = data;
 
@@ -212,7 +212,7 @@ export const sendSupportMessage = async (data) => {
   return message;
 };
 
-// Marks messages as read in a support chat
+// Purpose: Marks messages as read in a support chat
 export const markMessagesAsRead = async (chatId, userId, isAdmin) => {
   const updateQuery = {
     supportChatId: chatId,
@@ -241,7 +241,7 @@ export const markMessagesAsRead = async (chatId, userId, isAdmin) => {
   await chat.save();
 };
 
-// Closes a support chat conversation with optional resolution notes
+// Purpose: Closes a support chat conversation with optional resolution notes
 export const closeSupportChat = async (chatId, userId, resolutionNotes = null) => {
   const chat = await SupportChat.findById(chatId);
   if (!chat) {

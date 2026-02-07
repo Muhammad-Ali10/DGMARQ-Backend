@@ -14,4 +14,5 @@ const categorySchema = new mongoose.Schema(
 
 categorySchema.plugin(mongooseAggregatePaginate);
 
+// Purpose: Defines product categories with name, slug, and image
 export const Category = mongoose.model("Category", categorySchema);

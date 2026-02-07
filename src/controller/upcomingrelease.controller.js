@@ -8,14 +8,10 @@ import { Product } from "../models/product.model.js";
 import { fileUploader } from "../utils/cloudinary.js";
 import { fileDelete } from "../utils/deletecloudinary.js";
 
-/**
- * Get upcoming releases (public)
- * GET /api/v1/upcoming-release
- */
+// Purpose: Retrieves upcoming releases for public display
 const getUpcomingReleases = asyncHandler(async (req, res) => {
   const config = await UpcomingRelease.getOrCreate();
 
-  // Populate product details for active slots only
   const populatedSlots = await Promise.all(
     config.slots
       .filter((slot) => slot.productId && slot.backgroundImageUrl)
@@ -54,14 +50,10 @@ const getUpcomingReleases = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get upcoming releases configuration (admin)
- * GET /api/v1/upcoming-release/admin
- */
+// Purpose: Retrieves upcoming releases configuration for admin
 const getUpcomingReleasesConfig = asyncHandler(async (req, res) => {
   const config = await UpcomingRelease.getOrCreate();
 
-  // Populate product details
   const populatedSlots = await Promise.all(
     config.slots.map(async (slot) => {
       let product = null;
@@ -90,10 +82,7 @@ const getUpcomingReleasesConfig = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Update slot (admin)
- * PUT /api/v1/upcoming-release/slot/:slotNumber
- */
+// Purpose: Updates slot product assignment for admin
 const updateSlot = asyncHandler(async (req, res) => {
   const { slotNumber } = req.params;
   const { productId } = req.body;
@@ -107,19 +96,15 @@ const updateSlot = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Invalid product ID");
   }
 
-  // Verify product exists
   const product = await Product.findById(productId);
   if (!product) {
     throw new ApiError(404, "Product not found");
   }
 
-  // Get or create config
   const config = await UpcomingRelease.getOrCreate();
 
-  // Find the slot
   let slotIndex = config.slots.findIndex((s) => s.slotNumber === slotNum);
   if (slotIndex === -1) {
-    // Create new slot if doesn't exist
     config.slots.push({
       slotNumber: slotNum,
       productId: productId,
@@ -129,14 +114,12 @@ const updateSlot = asyncHandler(async (req, res) => {
     });
     slotIndex = config.slots.length - 1;
   } else {
-    // Update existing slot
     config.slots[slotIndex].productId = productId;
     config.slots[slotIndex].updatedAt = new Date();
   }
 
   await config.save();
 
-  // Populate and return updated slot
   const updatedSlot = config.slots.find((s) => s.slotNumber === slotNum);
   const populatedProduct = await Product.findById(updatedSlot.productId)
     .select("name slug price images platform region")
@@ -155,10 +138,7 @@ const updateSlot = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Update slot background image (admin)
- * PUT /api/v1/upcoming-release/slot/:slotNumber/image
- */
+// Purpose: Updates slot background image for admin
 const updateSlotImage = asyncHandler(async (req, res) => {
   const { slotNumber } = req.params;
   const slotNum = parseInt(slotNumber);
@@ -171,10 +151,8 @@ const updateSlotImage = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Background image is required");
   }
 
-  // Get or create config
   const config = await UpcomingRelease.getOrCreate();
 
-  // Find the slot
   const slotIndex = config.slots.findIndex((s) => s.slotNumber === slotNum);
   if (slotIndex === -1) {
     throw new ApiError(404, `Slot ${slotNum} not found. Please set a product first.`);
@@ -182,30 +160,25 @@ const updateSlotImage = asyncHandler(async (req, res) => {
 
   const slot = config.slots[slotIndex];
 
-  // Delete old image from cloudinary if exists
   if (slot.backgroundImagePublicId) {
     try {
       await fileDelete(slot.backgroundImagePublicId, "image");
     } catch (error) {
       logger.error("Error deleting old image", error);
-      // Continue even if deletion fails
     }
   }
 
-  // Upload new image
   const uploadResult = await fileUploader(req.file.path);
   if (!uploadResult || !uploadResult.url) {
     throw new ApiError(500, "Failed to upload background image");
   }
 
-  // Update slot
   slot.backgroundImageUrl = uploadResult.url;
   slot.backgroundImagePublicId = uploadResult.public_id;
   slot.updatedAt = new Date();
 
   await config.save();
 
-  // Populate product if exists
   let populatedProduct = null;
   if (slot.productId) {
     populatedProduct = await Product.findById(slot.productId)

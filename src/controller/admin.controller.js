@@ -17,8 +17,9 @@ import { SELLER_STATUS } from "../constants.js";
 import { auditLog } from "../services/audit.service.js";
 import { SeoSettings } from "../models/seoSettings.model.js";
 import { validateMetaTitle, validateMetaDescription } from "../utils/sanitize.js";
+import { getHandlingFeeConfig, validateHandlingFeeConfig } from "../services/handlingFee.service.js";
 
-// Approves a pending seller application and activates their account
+// Purpose: Approves a pending seller application and activates their account
 const approveSeller = asyncHandler(async (req, res) => {
   const { sellerId } = req.params;
   const adminId = req.user._id;
@@ -53,7 +54,7 @@ const approveSeller = asyncHandler(async (req, res) => {
   );
 });
 
-// Rejects a pending seller application and deactivates their account
+// Purpose: Rejects a pending seller application and deactivates their account
 const rejectSeller = asyncHandler(async (req, res) => {
   const { sellerId } = req.params;
   const { reason } = req.body;
@@ -90,9 +91,9 @@ const rejectSeller = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves all pending seller applications with pagination
+// Purpose: Retrieves all pending seller applications with pagination
 const getPendingSellers = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20 } = req.query;
+  const { page = 1, limit = 10 } = req.query;
 
   const sellers = await Seller.find({ status: "pending" })
     .populate("userId", "name email profileImage roles isActive createdAt")
@@ -117,9 +118,9 @@ const getPendingSellers = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves all sellers with optional status filtering and pagination
+// Purpose: Retrieves all sellers with optional status filtering and pagination
 const getAllSellers = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20, status } = req.query;
+  const { page = 1, limit = 10, status } = req.query;
 
   const match = {};
   if (status && status !== 'all') {
@@ -149,7 +150,7 @@ const getAllSellers = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves detailed seller information including product count, order stats, and revenue
+// Purpose: Retrieves detailed seller information including product count, order stats, and revenue
 const getSellerDetails = asyncHandler(async (req, res) => {
   const { sellerId } = req.params;
 
@@ -174,7 +175,7 @@ const getSellerDetails = asyncHandler(async (req, res) => {
     {
       $group: {
         _id: "$_id",
-        sellerEarning: { $sum: "$items.sellerEarning" },
+        sellerEarning: { $sum: { $subtract: ["$items.sellerEarning", { $ifNull: ["$items.refundedSellerAmount", 0] }] } },
       },
     },
     {
@@ -200,12 +201,10 @@ const getSellerDetails = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Block/Unblock active seller (admin only)
- */
+// Purpose: Blocks or unblocks an active seller account
 const blockSeller = asyncHandler(async (req, res) => {
   const { sellerId } = req.params;
-  const { action, reason } = req.body; // action: 'block' or 'unblock'
+  const { action, reason } = req.body;
   const adminId = req.user._id;
 
   if (!mongoose.Types.ObjectId.isValid(sellerId)) {
@@ -226,7 +225,6 @@ const blockSeller = asyncHandler(async (req, res) => {
       throw new ApiError(400, `Cannot block seller with status: ${seller.status}`);
     }
     seller.status = 'banned';
-    // Also deactivate the user account
     if (seller.userId) {
       await User.findByIdAndUpdate(seller.userId._id, { isActive: false });
       await User.findByIdAndUpdate(seller.userId._id, { $pull: { roles: 'seller' } });
@@ -236,7 +234,6 @@ const blockSeller = asyncHandler(async (req, res) => {
       throw new ApiError(400, `Cannot unblock seller with status: ${seller.status}`);
     }
     seller.status = 'active';
-    // Reactivate the user account
     if (seller.userId) {
       await User.findByIdAndUpdate(seller.userId._id, { isActive: true });
       await User.findByIdAndUpdate(seller.userId._id, { $addToSet: { roles: 'seller' } });
@@ -256,9 +253,7 @@ const blockSeller = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Approve product
- */
+// Purpose: Approves a pending product and sets it to active status
 const approveProduct = asyncHandler(async (req, res) => {
   const { productId } = req.params;
   const adminId = req.user._id;
@@ -286,9 +281,7 @@ const approveProduct = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Reject product
- */
+// Purpose: Rejects a product with a specified reason
 const rejectProduct = asyncHandler(async (req, res) => {
   const { productId } = req.params;
   const { reason } = req.body;
@@ -316,11 +309,9 @@ const rejectProduct = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get pending products
- */
+// Purpose: Retrieves all pending products with pagination and stock sync
 const getPendingProducts = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20 } = req.query;
+  const { page = 1, limit = 10 } = req.query;
   const { LicenseKey } = await import("../models/licensekey.model.js");
   const mongoose = await import("mongoose");
 
@@ -370,16 +361,13 @@ const getPendingProducts = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get all products with status filter (admin only)
- */
+// Purpose: Retrieves all products with optional status filter and pagination
 const getAllProducts = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, status } = req.query;
   const { LicenseKey } = await import("../models/licensekey.model.js");
 
   const match = {};
   if (status && status !== 'all') {
-    // Handle published-like statuses to include both 'active' and 'approved'
     const normalized = String(status).toLowerCase();
     if (['published', 'approved', 'active'].includes(normalized)) {
       match.status = { $in: ['active', 'approved'] };
@@ -434,9 +422,7 @@ const getAllProducts = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get product details by ID (admin view - read-only)
- */
+// Purpose: Retrieves detailed product information by ID for admin view
 const getProductDetails = asyncHandler(async (req, res) => {
   const { productId } = req.params;
   const { LicenseKey } = await import("../models/licensekey.model.js");
@@ -470,7 +456,6 @@ const getProductDetails = asyncHandler(async (req, res) => {
     ? licenseKeyDoc.keys.filter(key => !key.isUsed).length 
     : 0;
 
-  // Update stock in database if it's out of sync (async, don't wait)
   if (product.stock !== availableCount || product.availableKeysCount !== availableCount) {
     Product.findByIdAndUpdate(product._id, {
       stock: availableCount,
@@ -489,11 +474,9 @@ const getProductDetails = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get all payouts (admin view)
- */
+// Purpose: Retrieves all payouts with optional status filter and pagination
 const getAllPayouts = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20, status } = req.query;
+  const { page = 1, limit = 10, status } = req.query;
 
   const match = {};
   if (status) {
@@ -522,9 +505,7 @@ const getAllPayouts = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Manually process payout
- */
+// Purpose: Manually processes a pending payout for a seller
 const processPayout = asyncHandler(async (req, res) => {
   const { payoutId } = req.params;
 
@@ -541,10 +522,8 @@ const processPayout = asyncHandler(async (req, res) => {
     throw new ApiError(400, `Payout is already ${payout.status}`);
   }
 
-  // Process payout (this will call the payout service)
   const results = await processScheduledPayouts();
   
-  // Find the processed payout
   const processedPayout = await Payout.findById(payoutId);
 
   return res.status(200).json(
@@ -552,16 +531,12 @@ const processPayout = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get all users (admin only)
- */
+// Purpose: Retrieves all users with optional role and status filters
 const getAllUsers = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20, role, isActive } = req.query;
+  const { page = 1, limit = 10, role, isActive } = req.query;
 
   const match = {};
   if (role) {
-    // Use $in operator for array field matching
-    // For customer role, also include users with no roles or empty roles array
     if (role === 'customer') {
       match.$or = [
         { roles: { $in: [role] } },
@@ -584,7 +559,6 @@ const getAllUsers = asyncHandler(async (req, res) => {
     .limit(parseInt(limit))
     .lean();
 
-  // Ensure all users have at least a default role for display
   const usersWithRoles = users.map(user => ({
     ...user,
     roles: user.roles && user.roles.length > 0 ? user.roles : ['customer']
@@ -605,12 +579,10 @@ const getAllUsers = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Ban/Unban user
- */
+// Purpose: Bans or unbans a user account
 const banUser = asyncHandler(async (req, res) => {
   const { userId } = req.params;
-  const { action, reason } = req.body; // action: 'ban' or 'unban'
+  const { action, reason } = req.body;
 
   if (!mongoose.Types.ObjectId.isValid(userId)) {
     throw new ApiError(400, "Invalid user ID");
@@ -627,7 +599,6 @@ const banUser = asyncHandler(async (req, res) => {
 
   if (action === 'ban') {
     user.isActive = false;
-    // Remove seller role if user is a seller
     if (user.roles.includes('seller')) {
       await Seller.findOneAndUpdate(
         { userId },
@@ -645,10 +616,10 @@ const banUser = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get dashboard statistics
- */
+// Purpose: Retrieves comprehensive dashboard statistics for admin overview
 const getDashboardStats = asyncHandler(async (req, res) => {
+  const { ReturnRefund } = await import("../models/returnrefund.model.js");
+  
   const [
     totalUsers,
     totalSellers,
@@ -661,6 +632,9 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     totalPayouts,
     activeConversations,
     totalCustomers,
+    totalRefunds,
+    approvedRefunds,
+    pendingRefunds,
   ] = await Promise.all([
     User.countDocuments(),
     Seller.countDocuments({ status: 'active' }),
@@ -676,17 +650,23 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     Payout.countDocuments({ status: 'released' }),
     Conversation.countDocuments({ status: 'active' }),
     User.countDocuments({ roles: { $nin: ['admin', 'seller'] } }),
+    ReturnRefund.countDocuments(),
+    ReturnRefund.countDocuments({ status: 'approved' }),
+    ReturnRefund.countDocuments({ status: 'pending' }),
   ]);
 
   const revenue = totalRevenue[0]?.total || 0;
 
-  // Recent orders (last 7 days)
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   const recentOrders = await Order.countDocuments({
     createdAt: { $gte: sevenDaysAgo },
     paymentStatus: 'paid',
   });
+
+  const conversionRate = totalUsers > 0 
+    ? ((totalOrders / totalUsers) * 100).toFixed(2)
+    : '0.00';
 
   return res.status(200).json(
     new ApiResponse(200, {
@@ -708,7 +688,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
       },
       revenue: {
         total: revenue,
-        currency: 'EUR',
+        currency: 'USD',
       },
       payouts: {
         pending: pendingPayouts,
@@ -717,16 +697,22 @@ const getDashboardStats = asyncHandler(async (req, res) => {
       conversations: {
         active: activeConversations,
       },
+      refunds: {
+        total: totalRefunds,
+        approved: approvedRefunds,
+        pending: pendingRefunds,
+      },
+      metrics: {
+        conversionRate: parseFloat(conversionRate),
+      },
     }, "Dashboard statistics retrieved successfully")
   );
 });
 
-/**
- * Moderate chat (delete message or block conversation)
- */
+// Purpose: Moderates chat by blocking conversations or deleting messages
 const moderateChat = asyncHandler(async (req, res) => {
   const { conversationId } = req.params;
-  const { action, messageId } = req.body; // action: 'block' or 'delete_message'
+  const { action, messageId } = req.body;
 
   if (!mongoose.Types.ObjectId.isValid(conversationId)) {
     throw new ApiError(400, "Invalid conversation ID");
@@ -763,9 +749,7 @@ const moderateChat = asyncHandler(async (req, res) => {
   }
 });
 
-/**
- * Get commission rate (admin only)
- */
+// Purpose: Retrieves the current platform commission rate
 const getCommissionRate = asyncHandler(async (req, res) => {
   const setting = await PlatformSettings.findOne({ key: 'commission_rate' });
   const rate = setting ? setting.value : 0.1; // Default 10%
@@ -779,9 +763,7 @@ const getCommissionRate = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Update commission rate (admin only)
- */
+// Purpose: Updates the platform commission rate
 const updateCommissionRate = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
   const { commissionRate } = req.body;
@@ -814,9 +796,7 @@ const updateCommissionRate = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get auto-approve products setting (admin only)
- */
+// Purpose: Retrieves the auto-approve products setting
 const getAutoApproveSetting = asyncHandler(async (req, res) => {
   const setting = await PlatformSettings.findOne({ key: 'auto_approve_products' });
   const autoApprove = setting ? setting.value === true : false;
@@ -830,9 +810,7 @@ const getAutoApproveSetting = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Update auto-approve products setting (admin only)
- */
+// Purpose: Updates the auto-approve products setting
 const updateAutoApproveSetting = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
   const { autoApprove } = req.body;
@@ -864,14 +842,11 @@ const updateAutoApproveSetting = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get home page SEO settings (admin only)
- */
+// Purpose: Retrieves home page SEO settings
 const getHomePageSEO = asyncHandler(async (req, res) => {
   const seoSettings = await SeoSettings.findOne({ page: 'home' });
 
   if (!seoSettings) {
-    // Return default values if not set
     return res.status(200).json(
       new ApiResponse(200, {
         page: 'home',
@@ -892,9 +867,7 @@ const getHomePageSEO = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Update home page SEO settings (admin only)
- */
+// Purpose: Updates home page SEO settings
 const updateHomePageSEO = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
   const { metaTitle, metaDescription } = req.body;
@@ -903,19 +876,16 @@ const updateHomePageSEO = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Meta title and meta description are required");
   }
 
-  // Validate meta title
   const metaTitleValidation = validateMetaTitle(metaTitle);
   if (!metaTitleValidation.valid) {
     throw new ApiError(400, metaTitleValidation.error);
   }
 
-  // Validate meta description
   const metaDescriptionValidation = validateMetaDescription(metaDescription);
   if (!metaDescriptionValidation.valid) {
     throw new ApiError(400, metaDescriptionValidation.error);
   }
 
-  // Upsert SEO settings
   const seoSettings = await SeoSettings.findOneAndUpdate(
     { page: 'home' },
     {
@@ -938,6 +908,70 @@ const updateHomePageSEO = asyncHandler(async (req, res) => {
       metaDescription: seoSettings.metaDescription,
       lastUpdated: seoSettings.updatedAt,
     }, "Home page SEO settings updated successfully")
+  );
+});
+
+// Purpose: Retrieves buyer handling fee configuration settings
+const getBuyerHandlingFeeSetting = asyncHandler(async (req, res) => {
+  const config = await getHandlingFeeConfig();
+  const setting = await PlatformSettings.findOne({ key: 'buyer_handling_fee' });
+  return res.status(200).json(
+    new ApiResponse(200, {
+      enabled: config.enabled,
+      feeType: config.feeType,
+      percentageValue: config.percentageValue,
+      fixedAmount: config.fixedAmount,
+      lastUpdated: setting?.updatedAt || null,
+    }, "Buyer handling fee settings retrieved successfully")
+  );
+});
+
+// Purpose: Updates buyer handling fee configuration settings
+const updateBuyerHandlingFeeSetting = asyncHandler(async (req, res) => {
+  const adminId = req.user._id;
+  const value = validateHandlingFeeConfig(req.body);
+  const setting = await PlatformSettings.findOneAndUpdate(
+    { key: 'buyer_handling_fee' },
+    {
+      key: 'buyer_handling_fee',
+      value,
+      description: 'Buyer handling fee (charged to buyer, 100% to admin)',
+      updatedBy: adminId,
+    },
+    { upsert: true, new: true }
+  );
+  await auditLog(adminId, "BUYER_HANDLING_FEE_UPDATED", `Buyer handling fee: ${value.enabled ? (value.feeType === 'percentage' ? `${value.percentageValue}%` : `$${value.fixedAmount}`) : 'disabled'}`, value);
+  return res.status(200).json(
+    new ApiResponse(200, {
+      ...setting.value,
+      message: 'Buyer handling fee settings updated successfully',
+    }, "Buyer handling fee settings updated successfully")
+  );
+});
+
+// Purpose: Retrieves handling fee statistics for admin dashboard
+const getHandlingFeeStats = asyncHandler(async (req, res) => {
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay());
+  startOfWeek.setHours(0, 0, 0, 0);
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const [total, daily, weekly, monthly] = await Promise.all([
+    Order.aggregate([{ $match: { paymentStatus: 'paid', buyerHandlingFee: { $gt: 0 } } }, { $group: { _id: null, total: { $sum: '$buyerHandlingFee' } } }]),
+    Order.aggregate([{ $match: { paymentStatus: 'paid', createdAt: { $gte: startOfDay }, buyerHandlingFee: { $gt: 0 } } }, { $group: { _id: null, total: { $sum: '$buyerHandlingFee' } } }]),
+    Order.aggregate([{ $match: { paymentStatus: 'paid', createdAt: { $gte: startOfWeek }, buyerHandlingFee: { $gt: 0 } } }, { $group: { _id: null, total: { $sum: '$buyerHandlingFee' } } }]),
+    Order.aggregate([{ $match: { paymentStatus: 'paid', createdAt: { $gte: startOfMonth }, buyerHandlingFee: { $gt: 0 } } }, { $group: { _id: null, total: { $sum: '$buyerHandlingFee' } } }]),
+  ]);
+
+  return res.status(200).json(
+    new ApiResponse(200, {
+      totalHandlingFees: total[0]?.total ?? 0,
+      daily: daily[0]?.total ?? 0,
+      weekly: weekly[0]?.total ?? 0,
+      monthly: monthly[0]?.total ?? 0,
+    }, "Handling fee stats retrieved successfully")
   );
 });
 
@@ -965,5 +999,8 @@ export {
   updateAutoApproveSetting,
   getHomePageSEO,
   updateHomePageSEO,
+  getBuyerHandlingFeeSetting,
+  updateBuyerHandlingFeeSetting,
+  getHandlingFeeStats,
 };
 

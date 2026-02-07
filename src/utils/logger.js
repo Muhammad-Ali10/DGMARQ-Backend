@@ -1,41 +1,29 @@
-/**
- * Centralized logging utility for the backend
- * Replaces all console.log/console.error with proper logging
- */
-
 const isDevelopment = process.env.NODE_ENV === 'development';
 
+// Purpose: Centralized logging utility with environment-aware output levels
 class Logger {
-  /**
-   * Log info messages (development only)
-   */
+  // Purpose: Logs informational messages in development mode
   info(message, ...args) {
     if (isDevelopment) {
       console.log(`ℹ️ [INFO] ${message}`, ...args);
     }
   }
 
-  /**
-   * Log success messages
-   */
+  // Purpose: Logs success messages in development mode
   success(message, ...args) {
     if (isDevelopment) {
       console.log(`✅ [SUCCESS] ${message}`, ...args);
     }
   }
 
-  /**
-   * Log warning messages
-   */
+  // Purpose: Logs warning messages in development mode
   warn(message, ...args) {
     if (isDevelopment) {
       console.warn(`⚠️ [WARN] ${message}`, ...args);
     }
   }
 
-  /**
-   * Log error messages (always logged, even in production)
-   */
+  // Purpose: Logs error messages in all environments
   error(message, error = null, ...args) {
     const errorDetails = error instanceof Error 
       ? {
@@ -48,18 +36,14 @@ class Logger {
     console.error(`❌ [ERROR] ${message}`, errorDetails || '', ...args);
   }
 
-  /**
-   * Log debug messages (development only)
-   */
+  // Purpose: Logs debug messages in development mode
   debug(message, ...args) {
     if (isDevelopment) {
       console.log(`🔍 [DEBUG] ${message}`, ...args);
     }
   }
 
-  /**
-   * Log HTTP request/response
-   */
+  // Purpose: Logs HTTP request/response information
   http(method, url, statusCode = null, ...args) {
     if (isDevelopment) {
       const status = statusCode ? `[${statusCode}]` : '';
@@ -68,6 +52,5 @@ class Logger {
   }
 }
 
-// Export singleton instance
 export const logger = new Logger();
 export default logger;

@@ -15,6 +15,8 @@ import {
   moderateReview,
 } from "../controller/review.controller.js";
 
+// Purpose: Product review CRUD, voting, replies, photos, and moderation routes
+
 const router = Router();
 
 router

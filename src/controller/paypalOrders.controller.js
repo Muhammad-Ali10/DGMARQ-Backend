@@ -4,23 +4,75 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { logger } from "../utils/logger.js";
 import { createPayPalOrderForCheckout, capturePayPalOrderForCheckout } from "../services/payment.service.js";
 import { Checkout } from "../models/checkout.model.js";
+import { getWalletBalance } from "../services/wallet.service.js";
+import { calculateBuyerHandlingFee } from "../services/handlingFee.service.js";
 import mongoose from "mongoose";
 
-/**
- * Create PayPal Order
- * POST /api/v1/paypal/orders
- * 
- * Body: { checkoutId } OR { amount, currency, items, discount?, tax_total?, shipping?, handling? }
- * 
- * SECURITY: 
- * - Prefer checkoutId: recalculates amount from DB (never trust client)
- * - If checkoutId not provided, accepts amount (legacy support, but not recommended)
- * - NO card data accepted
- */
+// Purpose: Recalculates checkout amounts from items including buyer handling fee
+const recalculateCheckoutAmounts = async (checkout) => {
+  let subtotal = 0;
+  for (const item of checkout.items) {
+    const lineTotal = item.unitPrice * item.qty;
+    item.lineTotal = lineTotal;
+    subtotal += lineTotal;
+  }
+
+  const totalDiscount = (checkout.bundleDiscount || 0) +
+    (checkout.subscriptionDiscount || 0) +
+    (checkout.couponDiscount || 0);
+
+  const totalAmount = Math.round((subtotal - totalDiscount) * 100) / 100;
+
+  if (totalAmount <= 0) {
+    throw new ApiError(400, 'Invalid total amount after recalculation');
+  }
+
+  const { buyerHandlingFee, grandTotal } = await calculateBuyerHandlingFee(totalAmount);
+  const walletBalance = await getWalletBalance(checkout.userId);
+
+  let walletAmount = 0;
+  let cardAmount = grandTotal;
+  let paymentMethod = "PayPal";
+
+  if (walletBalance > 0) {
+    if (walletBalance >= grandTotal) {
+      walletAmount = grandTotal;
+      cardAmount = 0;
+      paymentMethod = "Wallet";
+    } else {
+      walletAmount = walletBalance;
+      cardAmount = Math.round((grandTotal - walletBalance) * 100) / 100;
+      paymentMethod = "Wallet+Card";
+    }
+  }
+
+  checkout.subtotal = subtotal;
+  checkout.totalAmount = totalAmount;
+  checkout.buyerHandlingFee = buyerHandlingFee;
+  checkout.grandTotal = grandTotal;
+  checkout.walletAmount = walletAmount;
+  checkout.cardAmount = cardAmount;
+  checkout.paymentMethod = paymentMethod;
+
+  logger.info('[PAYPAL ORDERS] Checkout amounts recalculated', {
+    checkoutId: checkout._id,
+    subtotal: subtotal.toFixed(2),
+    totalAmount: totalAmount.toFixed(2),
+    buyerHandlingFee,
+    grandTotal: grandTotal.toFixed(2),
+    walletAmount: walletAmount.toFixed(2),
+    cardAmount: cardAmount.toFixed(2),
+    paymentMethod,
+    itemCount: checkout.items.length,
+  });
+
+  return checkout;
+};
+
+// Purpose: Creates a PayPal order from checkout or direct amount with security validation
 const createOrder = asyncHandler(async (req, res) => {
   const { checkoutId, amount, currency, items, discount, tax_total, shipping, handling } = req.body;
 
-  // FIX: Enhanced logging to debug missing checkoutId
   logger.debug('[PAYPAL ORDERS] Create order request received', {
     hasCheckoutId: !!checkoutId,
     checkoutId: checkoutId || 'MISSING',
@@ -29,11 +81,7 @@ const createOrder = asyncHandler(async (req, res) => {
     bodyKeys: Object.keys(req.body || {}),
   });
 
-  // MANDATORY: If checkoutId provided, IGNORE ALL client financial fields
-  // Recalculate everything from DB only
   if (checkoutId) {
-    // SECURITY: Ignore all client-provided financial fields when checkoutId is present
-    // This prevents client manipulation of amounts, items, discounts, etc.
     if (!mongoose.Types.ObjectId.isValid(checkoutId)) {
       return res.status(400).json({
         ok: false,
@@ -60,22 +108,51 @@ const createOrder = asyncHandler(async (req, res) => {
       });
     }
 
-    // SECURITY: Recalculate ALL financial data from DB - ignore ALL client fields
-    // Client-provided amount, currency, items, discount, tax_total, shipping, handling are IGNORED
+    if (checkout.isGuest) {
+      if (req.user) {
+        return res.status(400).json({
+          ok: false,
+          message: 'This is a guest checkout; do not send auth token',
+          details: { checkoutId },
+        });
+      }
+    } else {
+      if (!req.user || !checkout.userId || checkout.userId.toString() !== req.user._id.toString()) {
+        return res.status(403).json({
+          ok: false,
+          message: 'Checkout session does not belong to you',
+          details: { checkoutId },
+        });
+      }
+    }
+
+    if (!checkout.isGuest) {
+      await recalculateCheckoutAmounts(checkout);
+      await checkout.save();
+    }
+
+    const totalDiscount = (checkout.bundleDiscount || 0) +
+      (checkout.subscriptionDiscount || 0) +
+      (checkout.couponDiscount || 0);
+
+    // When wallet is used, charge only cardAmount on PayPal so capture amount matches expected
+    const grandTotal = checkout.grandTotal ?? checkout.totalAmount;
+    const cardAmount = checkout.cardAmount;
+    const useExplicitAmount = cardAmount != null && grandTotal != null && cardAmount < grandTotal;
     const orderData = {
-      currency: 'USD', // Hard-enforce USD (never trust client)
+      currency: 'USD',
+      ...(useExplicitAmount ? { amount: cardAmount } : {}),
       items: checkout.items.map(item => ({
         name: item.name,
         quantity: item.qty,
-        unit_amount: item.unitPrice, // From DB only
+        unit_amount: item.unitPrice,
       })),
-      discount: checkout.discount > 0 ? checkout.discount : undefined, // From DB only
-      tax_total: undefined, // Not stored in checkout model
-      shipping: undefined, // Not stored in checkout model
-      handling: undefined, // Not stored in checkout model
+      discount: totalDiscount > 0 ? totalDiscount : 0,
+      tax_total: 0,
+      shipping: 0,
+      handling: checkout.buyerHandlingFee || 0,
     };
     
-    // Log that client fields were ignored (for audit)
     if (amount || currency || items || discount || tax_total || shipping || handling) {
       logger.warn('[PAYPAL ORDERS] Client financial fields ignored (checkoutId provided)', {
         checkoutId,
@@ -83,10 +160,11 @@ const createOrder = asyncHandler(async (req, res) => {
       });
     }
 
-    // Log for audit (NO sensitive data)
     logger.debug('[PAYPAL ORDERS] Create order from checkoutId', {
       checkoutId,
       totalAmount: checkout.totalAmount,
+      cardAmount: checkout.cardAmount,
+      walletAmount: checkout.walletAmount,
       itemCount: checkout.items.length,
       currency: 'USD',
     });
@@ -94,7 +172,6 @@ const createOrder = asyncHandler(async (req, res) => {
     try {
       const result = await createPayPalOrderForCheckout(orderData);
 
-      // Update checkout with PayPal order ID
       checkout.paypalOrderId = result.orderId;
       await checkout.save();
 
@@ -116,8 +193,6 @@ const createOrder = asyncHandler(async (req, res) => {
     }
   }
 
-  // LEGACY: Accept amount from client (not recommended, but supported for backward compatibility)
-  // Enhanced logging (NO sensitive data)
   logger.debug('[PAYPAL ORDERS] Create order request (legacy - amount from client)', {
     url: req.originalUrl,
     method: req.method,
@@ -127,7 +202,6 @@ const createOrder = asyncHandler(async (req, res) => {
     hasDiscount: !!discount,
   });
 
-    // Validation
     if (!amount || amount <= 0) {
       return res.status(400).json({
         ok: false,
@@ -136,7 +210,6 @@ const createOrder = asyncHandler(async (req, res) => {
       });
     }
 
-    // HARD-ENFORCE USD CURRENCY
     if (currency && currency !== 'USD') {
       return res.status(400).json({
         ok: false,
@@ -153,7 +226,6 @@ const createOrder = asyncHandler(async (req, res) => {
       });
     }
 
-    // Validate items structure
     for (const item of items) {
       if (!item.name || !item.quantity || item.unit_amount === undefined) {
         return res.status(400).json({
@@ -164,10 +236,9 @@ const createOrder = asyncHandler(async (req, res) => {
       }
     }
 
-    // Prepare order data (USD enforced)
     const orderData = {
       amount: parseFloat(amount),
-      currency: 'USD', // Hard-enforce USD
+      currency: 'USD',
       items: items.map(item => ({
         name: item.name,
         quantity: typeof item.quantity === 'number' ? item.quantity : parseFloat(item.quantity),
@@ -199,21 +270,11 @@ const createOrder = asyncHandler(async (req, res) => {
     }
 });
 
-/**
- * Capture PayPal Order
- * POST /api/v1/paypal/orders/:orderId/capture
- * 
- * Body: { checkoutId } (optional, but recommended for order creation)
- * 
- * SECURITY: 
- * - Only validates orderId - NO card data
- * - If checkoutId provided, creates order in DB after successful capture
- */
+// Purpose: Captures a PayPal order and creates DB order if checkout ID provided
 const captureOrder = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
   const { checkoutId } = req.body;
 
-  // Enhanced logging (NO sensitive data)
   logger.debug('[PAYPAL ORDERS] Capture order request', {
     url: req.originalUrl,
     method: req.method,
@@ -232,7 +293,6 @@ const captureOrder = asyncHandler(async (req, res) => {
   try {
     const result = await capturePayPalOrderForCheckout(orderId);
 
-    // MANDATORY: Verify captured amount + currency matches DB expected total
     if (checkoutId) {
       if (!mongoose.Types.ObjectId.isValid(checkoutId)) {
         return res.status(400).json({
@@ -242,7 +302,6 @@ const captureOrder = asyncHandler(async (req, res) => {
         });
       }
 
-      // MANDATORY: Verify captured amount + currency matches DB expected total
       const checkout = await Checkout.findById(checkoutId);
       if (!checkout) {
         return res.status(404).json({
@@ -252,8 +311,25 @@ const captureOrder = asyncHandler(async (req, res) => {
         });
       }
 
-      // Verify captured amount matches DB expected total (USD, 2 decimals)
-      const expectedAmount = parseFloat(checkout.totalAmount.toFixed(2));
+      if (checkout.isGuest) {
+        if (req.user) {
+          return res.status(400).json({
+            ok: false,
+            message: 'This is a guest checkout; do not send auth token',
+            details: { checkoutId },
+          });
+        }
+      } else {
+        if (!req.user || !checkout.userId || checkout.userId.toString() !== req.user._id.toString()) {
+          return res.status(403).json({
+            ok: false,
+            message: 'Checkout session does not belong to you',
+            details: { checkoutId },
+          });
+        }
+      }
+
+      const expectedAmount = parseFloat((checkout.cardAmount ?? checkout.grandTotal ?? checkout.totalAmount).toFixed(2));
       const capturedAmount = result.amount ? parseFloat(result.amount.toFixed(2)) : null;
       const capturedCurrency = result.currency || 'USD';
 
@@ -287,7 +363,6 @@ const captureOrder = asyncHandler(async (req, res) => {
       }
 
       if (Math.abs(capturedAmount - expectedAmount) > 0.01) {
-        // Allow 1 cent tolerance for floating point issues
         logger.error('[PAYPAL ORDERS] Capture amount mismatch', {
           orderId,
           checkoutId,
@@ -314,7 +389,6 @@ const captureOrder = asyncHandler(async (req, res) => {
         currency: capturedCurrency,
       });
 
-      // IDEMPOTENCY: Check if order already exists for this paypalOrderId
       const { Order } = await import('../models/order.model.js');
       const existingOrder = await Order.findOne({ paypalOrderId: orderId });
       
@@ -324,22 +398,23 @@ const captureOrder = asyncHandler(async (req, res) => {
           checkoutId,
           existingOrderId: existingOrder._id,
         });
-        return res.status(200).json({
+        const responsePayload = {
           ok: true,
           captureId: result.captureId,
           status: result.status,
           order: existingOrder,
           message: 'Order already exists (idempotent request)',
-        });
+        };
+        if (existingOrder.isGuest) {
+          responsePayload.guestOrder = true;
+          responsePayload.guestEmail = existingOrder.guestEmail;
+        }
+        return res.status(200).json(responsePayload);
       }
 
-      // Import order controller function
       const { createOrder: createOrderInDB } = await import('./order.controller.js');
       
-      // Create order in DB using existing order controller logic
-      // This will handle: order creation, key assignment, payout scheduling, etc.
       try {
-        // Note: createOrder expects { checkoutId, paypalOrderId } in body
         const orderReq = {
           body: { checkoutId, paypalOrderId: orderId },
           user: req.user,
@@ -348,14 +423,19 @@ const captureOrder = asyncHandler(async (req, res) => {
           status: (code) => ({
             json: (data) => {
               if (code === 201) {
-                return res.status(200).json({
+                const responseData = data.data || data;
+                const payload = {
                   ok: true,
                   captureId: result.captureId,
                   status: result.status,
-                  order: data.data, // Order created in DB
-                });
+                  order: responseData.order || responseData,
+                };
+                if (responseData.licenseDetails) {
+                  payload.licenseDetails = responseData.licenseDetails;
+                  payload.guestOrder = true;
+                }
+                return res.status(200).json(payload);
               }
-              // If order creation fails, still return capture success
               logger.error('[PAYPAL ORDERS] Order creation failed after capture', data);
               return res.status(200).json({
                 ok: true,
@@ -367,11 +447,9 @@ const captureOrder = asyncHandler(async (req, res) => {
           }),
         };
 
-        // Call order creation (this handles the full order flow)
         await createOrderInDB(orderReq, orderRes);
-        return; // Response already sent
+        return;
       } catch (orderError) {
-        // If order creation fails, still return capture success
         logger.error('[PAYPAL ORDERS] Order creation failed after capture', orderError);
         return res.status(200).json({
           ok: true,
@@ -382,7 +460,6 @@ const captureOrder = asyncHandler(async (req, res) => {
       }
     }
 
-    // No checkoutId provided - just return capture result
     return res.status(200).json({
       ok: true,
       captureId: result.captureId,

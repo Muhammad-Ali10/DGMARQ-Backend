@@ -12,5 +12,6 @@ const couponUsageSchema = new Schema(
 
 couponUsageSchema.index({ couponId: 1, userId: 1 });
 
+// Purpose: Tracks coupon usage history by user and order
 export const CouponUsage = mongoose.model("CouponUsage", couponUsageSchema);
 

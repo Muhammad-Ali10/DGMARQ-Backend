@@ -5,11 +5,7 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { UpcomingGames } from "../models/upcominggames.model.js";
 import { Product } from "../models/product.model.js";
 
-/**
- * Get upcoming games for homepage (public)
- * Returns only 6 products, only published/active products
- * GET /api/v1/upcoming-games
- */
+// Purpose: Retrieves upcoming games for homepage display
 const getUpcomingGames = asyncHandler(async (req, res) => {
   const config = await UpcomingGames.getOrCreate();
 
@@ -19,12 +15,10 @@ const getUpcomingGames = asyncHandler(async (req, res) => {
     );
   }
 
-  // Sort by order and get product IDs
   const sortedProducts = [...config.products]
     .sort((a, b) => a.order - b.order)
     .map((item) => item.productId);
 
-  // Fetch products (limit to 6, only active/approved)
   const products = await Product.find({
     _id: { $in: sortedProducts },
     status: { $in: ["active", "approved"] },
@@ -35,7 +29,6 @@ const getUpcomingGames = asyncHandler(async (req, res) => {
     .limit(6)
     .lean();
 
-  // Maintain order from config
   const productMap = new Map(products.map((p) => [p._id.toString(), p]));
   const orderedProducts = sortedProducts
     .map((id) => productMap.get(id.toString()))
@@ -47,14 +40,10 @@ const getUpcomingGames = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Get upcoming games configuration (admin)
- * GET /api/v1/upcoming-games/admin
- */
+// Purpose: Retrieves upcoming games configuration for admin
 const getUpcomingGamesConfig = asyncHandler(async (req, res) => {
   const config = await UpcomingGames.getOrCreate();
 
-  // Populate product details
   const productIds = config.products.map((item) => item.productId);
   const products = await Product.find({ _id: { $in: productIds } })
     .select("name slug price discount images platform region status")
@@ -82,10 +71,7 @@ const getUpcomingGamesConfig = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Add products to upcoming games (admin)
- * POST /api/v1/upcoming-games/add
- */
+// Purpose: Adds products to upcoming games list for admin
 const addProducts = asyncHandler(async (req, res) => {
   const { productIds } = req.body;
 
@@ -93,16 +79,14 @@ const addProducts = asyncHandler(async (req, res) => {
     throw new ApiError(400, "productIds must be a non-empty array");
   }
 
-  // Validate all product IDs
   const validIds = productIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
   if (validIds.length === 0) {
     throw new ApiError(400, "No valid product IDs provided");
   }
 
-  // Verify products exist (allow any status for upcoming games - they'll only show publicly when active/approved)
   const products = await Product.find({
     _id: { $in: validIds },
-    status: { $in: ["draft", "pending", "approved", "active"] }, // Allow draft/pending for upcoming games
+    status: { $in: ["draft", "pending", "approved", "active"] },
   });
 
   if (products.length === 0) {
@@ -111,13 +95,10 @@ const addProducts = asyncHandler(async (req, res) => {
 
   const foundProductIds = products.map((p) => p._id.toString());
 
-  // Get or create config
   const config = await UpcomingGames.getOrCreate();
 
-  // Get existing product IDs (as strings for comparison)
   const existingProductIds = config.products.map((item) => item.productId.toString());
 
-  // Filter out duplicates
   const newProductIds = validIds.filter(
     (id) => !existingProductIds.includes(id.toString())
   );
@@ -126,7 +107,6 @@ const addProducts = asyncHandler(async (req, res) => {
     throw new ApiError(400, "All products are already in the upcoming games list");
   }
 
-  // Filter to only products that actually exist (any valid status)
   const productsToAdd = newProductIds.filter((id) =>
     foundProductIds.includes(id.toString())
   );
@@ -135,13 +115,11 @@ const addProducts = asyncHandler(async (req, res) => {
     throw new ApiError(400, "No valid products to add (products may be rejected or not found)");
   }
 
-  // Get current max order
   const maxOrder =
     config.products.length > 0
       ? Math.max(...config.products.map((item) => item.order))
       : -1;
 
-  // Add new products
   productsToAdd.forEach((productId, index) => {
     config.products.push({
       productId,
@@ -153,7 +131,6 @@ const addProducts = asyncHandler(async (req, res) => {
   config.updatedAt = new Date();
   await config.save();
 
-  // Return updated config
   const productIdsToFetch = config.products.map((item) => item.productId);
   const allProducts = await Product.find({ _id: { $in: productIdsToFetch } })
     .select("name slug price discount images platform region status")
@@ -181,10 +158,7 @@ const addProducts = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Remove products from upcoming games (admin)
- * DELETE /api/v1/upcoming-games/remove
- */
+// Purpose: Removes products from upcoming games list for admin
 const removeProducts = asyncHandler(async (req, res) => {
   const { productIds } = req.body;
 
@@ -192,7 +166,6 @@ const removeProducts = asyncHandler(async (req, res) => {
     throw new ApiError(400, "productIds must be a non-empty array");
   }
 
-  // Validate all product IDs
   const validIds = productIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
   if (validIds.length === 0) {
     throw new ApiError(400, "No valid product IDs provided");
@@ -200,7 +173,6 @@ const removeProducts = asyncHandler(async (req, res) => {
 
   const config = await UpcomingGames.getOrCreate();
 
-  // Remove products
   const initialLength = config.products.length;
   config.products = config.products.filter(
     (item) => !validIds.some((id) => item.productId.toString() === id.toString())
@@ -210,7 +182,6 @@ const removeProducts = asyncHandler(async (req, res) => {
     throw new ApiError(404, "No matching products found to remove");
   }
 
-  // Reorder remaining products
   config.products.forEach((item, index) => {
     item.order = index;
   });
@@ -218,7 +189,6 @@ const removeProducts = asyncHandler(async (req, res) => {
   config.updatedAt = new Date();
   await config.save();
 
-  // Return updated config
   const productIdsToFetch = config.products.map((item) => item.productId);
   const allProducts = await Product.find({ _id: { $in: productIdsToFetch } })
     .select("name slug price discount images platform region status")
@@ -246,18 +216,14 @@ const removeProducts = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Update product order (admin)
- * PUT /api/v1/upcoming-games/reorder
- */
+// Purpose: Updates product display order in upcoming games for admin
 const reorderProducts = asyncHandler(async (req, res) => {
-  const { productIds } = req.body; // Array of product IDs in new order
+  const { productIds } = req.body;
 
   if (!Array.isArray(productIds)) {
     throw new ApiError(400, "productIds must be an array");
   }
 
-  // If empty array, just clear the list
   if (productIds.length === 0) {
     const config = await UpcomingGames.getOrCreate();
     config.products = [];
@@ -269,7 +235,6 @@ const reorderProducts = asyncHandler(async (req, res) => {
     );
   }
 
-  // Validate all product IDs
   const validIds = productIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
   if (validIds.length === 0) {
     throw new ApiError(400, "No valid product IDs provided");
@@ -277,19 +242,16 @@ const reorderProducts = asyncHandler(async (req, res) => {
 
   const config = await UpcomingGames.getOrCreate();
 
-  // Create a map of existing products by ID
   const existingProductsMap = new Map();
   config.products.forEach((item) => {
     existingProductsMap.set(item.productId.toString(), item);
   });
 
-  // Verify all product IDs in request exist in config
   const missingIds = validIds.filter(id => !existingProductsMap.has(id.toString()));
   if (missingIds.length > 0) {
     throw new ApiError(400, "Some product IDs do not exist in the upcoming games list");
   }
 
-  // Reorder products: keep only products in the request, in the order specified
   const reorderedProducts = validIds.map((id, index) => {
     const existingItem = existingProductsMap.get(id.toString());
     return {
@@ -299,13 +261,11 @@ const reorderProducts = asyncHandler(async (req, res) => {
     };
   });
 
-  // Keep products not in the reorder request but put them at the end
   const reorderedIdsSet = new Set(validIds.map(id => id.toString()));
   const notInReorder = config.products.filter(item => 
     !reorderedIdsSet.has(item.productId.toString())
   );
   
-  // Add products not in reorder at the end
   notInReorder.forEach((item, index) => {
     reorderedProducts.push({
       productId: item.productId,
@@ -314,13 +274,11 @@ const reorderProducts = asyncHandler(async (req, res) => {
     });
   });
 
-  // Replace products array
   config.products = reorderedProducts;
 
   config.updatedAt = new Date();
   await config.save();
 
-  // Return updated config
   const productIdsToFetch = config.products.map((item) => item.productId);
   const allProducts = await Product.find({ _id: { $in: productIdsToFetch } })
     .select("name slug price discount images platform region status")
@@ -348,10 +306,7 @@ const reorderProducts = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * Replace all products (admin)
- * PUT /api/v1/upcoming-games
- */
+// Purpose: Replaces all products in upcoming games list for admin
 const updateUpcomingGames = asyncHandler(async (req, res) => {
   const { productIds } = req.body;
 
@@ -359,7 +314,6 @@ const updateUpcomingGames = asyncHandler(async (req, res) => {
     throw new ApiError(400, "productIds must be an array");
   }
 
-  // If empty array, just clear the list
   if (productIds.length === 0) {
     const config = await UpcomingGames.getOrCreate();
     config.products = [];
@@ -371,16 +325,14 @@ const updateUpcomingGames = asyncHandler(async (req, res) => {
     );
   }
 
-  // Validate all product IDs
   const validIds = productIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
   if (validIds.length === 0) {
     throw new ApiError(400, "No valid product IDs provided");
   }
 
-  // Verify products exist (allow any status for upcoming games - they'll only show publicly when active/approved)
   const products = await Product.find({
     _id: { $in: validIds },
-    status: { $in: ["draft", "pending", "approved", "active"] }, // Allow draft/pending for upcoming games
+    status: { $in: ["draft", "pending", "approved", "active"] },
   });
 
   if (products.length === 0) {
@@ -389,15 +341,12 @@ const updateUpcomingGames = asyncHandler(async (req, res) => {
 
   const foundProductIds = products.map((p) => p._id.toString());
 
-  // Filter to only products that actually exist (any valid status)
   const productsToSet = validIds.filter((id) =>
     foundProductIds.includes(id.toString())
   );
 
-  // Get or create config
   const config = await UpcomingGames.getOrCreate();
 
-  // Replace all products
   config.products = productsToSet.map((productId, index) => ({
     productId,
     order: index,
@@ -407,7 +356,6 @@ const updateUpcomingGames = asyncHandler(async (req, res) => {
   config.updatedAt = new Date();
   await config.save();
 
-  // Return updated config
   const allProducts = await Product.find({ _id: { $in: productsToSet } })
     .select("name slug price discount images platform region status")
     .populate("platform", "name")

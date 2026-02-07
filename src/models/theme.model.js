@@ -13,5 +13,6 @@ const schema = new mongoose.Schema(
   { timestamps: true }
 );
 schema.plugin(mongooseAggregatePaginate);
+// Purpose: Represents product themes or visual styles for categorization
 export const Theme = mongoose.model("Theme", schema);
   

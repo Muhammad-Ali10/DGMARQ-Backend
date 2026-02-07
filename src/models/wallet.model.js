@@ -41,7 +41,6 @@ const walletSchema = new Schema(
       ref: "User",
       required: true,
       unique: true,
-      index: true,
     },
     balance: {
       type: Number,
@@ -57,9 +56,9 @@ const walletSchema = new Schema(
   { timestamps: true }
 );
 
-// Index for efficient queries
 walletSchema.index({ userId: 1 });
 walletSchema.index({ "transactions.orderId": 1 });
 walletSchema.index({ "transactions.refundId": 1 });
 
+// Purpose: Represents user wallet with balance and transaction history for payments and refunds
 export const Wallet = mongoose.model("Wallet", walletSchema);

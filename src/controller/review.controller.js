@@ -14,7 +14,7 @@ import { calculateAverageRating } from "../services/review.service.js";
 import { fileUploader } from "../utils/cloudinary.js";
 
 
-// Creates a review for a product after verifying purchase in the specified order
+// Purpose: Creates a review for a product after verifying purchase in the specified order
 const createReview = asyncHandler(async (req, res) => {
   const { rating, comment, productId, orderId } = req.body;
   const userId = req.user._id;
@@ -31,7 +31,6 @@ const createReview = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Order ID is required. Reviews can only be created after purchase.");
   }
 
-  // Validate MongoDB ObjectId format
   try {
     updateValidateMongoIds([{ id: productId, name: "Product" }, { id: orderId, name: "Order" }]);
   } catch (error) {
@@ -55,7 +54,6 @@ const createReview = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Order not found or not completed. Please ensure the order exists and has been completed.");
   }
 
-  // Verify product exists in the database
   const product = await Product.findById(productId);
   if (!product) {
     throw new ApiError(404, `Product not found. The product with ID ${productId} does not exist.`);
@@ -99,7 +97,7 @@ const createReview = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, review, "Review created successfully"));
 });
 
-// Updates an existing review by the review owner
+// Purpose: Updates an existing review by the review owner
 const updateReview = asyncHandler(async (req, res) => {
   const { rating, comment } = req.body;
   const { id } = req.params;
@@ -132,7 +130,7 @@ const updateReview = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, review, "Review updated successfully"));
 });
 
-// Deletes a review by the review owner and recalculates product rating
+// Purpose: Deletes a review by the review owner and recalculates product rating
 const deleteReview = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user._id;
@@ -156,13 +154,12 @@ const deleteReview = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, null, "Review deleted successfully"));
 });
 
-// Retrieves reviews with optional filtering by product, rating, and sorting
+// Purpose: Retrieves reviews with optional filtering by product, rating, and sorting
 const getReviews = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, productId, rating, sortBy } = req.query;
 
   const matchStage = {
     isHidden: false,
-    // Only show approved reviews (or pending if moderation is not enabled)
     $or: [
       { moderationStatus: 'approved' },
       { moderationStatus: { $exists: false } }, // For reviews created before moderation was added
@@ -224,7 +221,7 @@ const getReviews = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, reviews, "Reviews fetched successfully"));
 });
 
-// Records a helpful vote on a review and updates the helpful count
+// Purpose: Records a helpful vote on a review and updates the helpful count
 const voteOnReview = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
   const userId = req.user._id;
@@ -266,7 +263,7 @@ const voteOnReview = asyncHandler(async (req, res) => {
   );
 });
 
-// Adds a reply to a review by the product seller or admin
+// Purpose: Adds a reply to a review by the product seller or admin
 const replyToReview = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
   const userId = req.user._id;
@@ -306,7 +303,7 @@ const replyToReview = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves all replies for a specific review
+// Purpose: Retrieves all replies for a specific review
 const getReviewReplies = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
 
@@ -323,7 +320,7 @@ const getReviewReplies = asyncHandler(async (req, res) => {
   );
 });
 
-// Adds a photo to a review with image upload
+// Purpose: Adds a photo to a review with image upload
 const addReviewPhoto = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
   const userId = req.user._id;
@@ -359,7 +356,7 @@ const addReviewPhoto = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves all photos associated with a review
+// Purpose: Retrieves all photos associated with a review
 const getReviewPhotos = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
 
@@ -374,7 +371,7 @@ const getReviewPhotos = asyncHandler(async (req, res) => {
   );
 });
 
-// Moderates a review by approving, rejecting, or hiding it (admin only)
+// Purpose: Moderates a review by approving, rejecting, or hiding it (admin only)
 const moderateReview = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
   const { action, reason } = req.body;

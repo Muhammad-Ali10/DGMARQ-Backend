@@ -5,7 +5,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { logger } from "../utils/logger.js";
 import { updateValidateMongoIds } from "../utils/Idvalidation.js";
 
-// Calculates and updates the average rating and review count for a product
+// Purpose: Calculates and updates the average rating and review count for a product
 export const calculateAverageRating = async (productId) => {
 
   if (!productId) {

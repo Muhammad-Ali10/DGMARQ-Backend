@@ -8,6 +8,8 @@ import {
   getUnreadCount,
 } from "../controller/notification.controller.js";
 
+// Purpose: Notification routes for authenticated users to manage their notifications
+
 const router = Router();
 
 router

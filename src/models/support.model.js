@@ -49,10 +49,12 @@ supportChatSchema.index({ adminId: 1, status: 1 });
 supportChatSchema.index({ guestSessionId: 1, status: 1 });
 supportChatSchema.index({ status: 1, createdAt: -1 });
 
+// Purpose: Virtual property that checks if the chat is from an anonymous/guest user
 supportChatSchema.virtual('isAnonymous').get(function() {
   return !this.userId;
 });
 
+// Purpose: Virtual property that returns a unique identifier for the user or guest
 supportChatSchema.virtual('userIdentifier').get(function() {
   if (this.userId) {
     return this.userId.toString();
@@ -60,4 +62,5 @@ supportChatSchema.virtual('userIdentifier').get(function() {
   return this.guestEmail || this.guestSessionId || 'anonymous';
 });
 
+// Purpose: Represents a support chat session between users/guests and admin support staff
 export const SupportChat = mongoose.model("SupportChat", supportChatSchema);

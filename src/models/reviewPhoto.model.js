@@ -23,5 +23,6 @@ const reviewPhotoSchema = new mongoose.Schema(
 
 reviewPhotoSchema.index({ reviewId: 1, order: 1 });
 
+// Purpose: Stores photos attached to product reviews
 export const ReviewPhoto = mongoose.model("ReviewPhoto", reviewPhotoSchema);
 

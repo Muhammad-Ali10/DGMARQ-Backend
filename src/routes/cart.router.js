@@ -1,3 +1,4 @@
+// Purpose: Shopping cart routes for adding, updating, removing items and managing cart contents
 import { Router } from "express";
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 import {

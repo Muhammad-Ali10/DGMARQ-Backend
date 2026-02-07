@@ -15,8 +15,15 @@ import {
   getSellerProducts,
   getSellerReviews,
 } from "../controller/seller.controller.js";
+import {
+  getSellerLicenseKeys,
+  deleteSellerLicenseKey,
+  revealSellerLicenseKey,
+} from "../controller/licensekey.controller.js";
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 import { upload } from "../middlerwares/multer.middlerware.js";
+
+// Purpose: Seller application, profile management, shop settings, and license key routes
 
 const router = Router()
 
@@ -79,7 +86,6 @@ router
     .route("/verification-badge")
     .get(verifyJWT, authorizeRoles("seller"), getSellerVerificationBadge);
 
-// Public routes (no auth required)
 router
     .route("/public/:sellerId")
     .get(getPublicSellerProfile);
@@ -91,5 +97,17 @@ router
 router
     .route("/:sellerId/reviews")
     .get(getSellerReviews);
+
+router
+    .route("/license-keys/:keyId/reveal")
+    .get(verifyJWT, authorizeRoles("seller"), revealSellerLicenseKey);
+
+router
+    .route("/license-keys/:keyId")
+    .delete(verifyJWT, authorizeRoles("seller"), deleteSellerLicenseKey);
+
+router
+    .route("/license-keys/:productId")
+    .get(verifyJWT, authorizeRoles("seller"), getSellerLicenseKeys);
 
 export default router

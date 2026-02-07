@@ -5,7 +5,7 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
 
-// Creates a new platform with duplicate name checking
+// Purpose: Creates a new platform with duplicate name checking
 const createPlatform = asyncHandler(async (req, res) => {
   let { name, isActive = true } = req.body;
 
@@ -27,7 +27,7 @@ const createPlatform = asyncHandler(async (req, res) => {
 });
 
 
-// Updates a platform by ID with name validation
+// Purpose: Updates a platform by ID with name validation
 const updatePlatform = asyncHandler(async (req, res) => {
   const { id } = req.params;
   let { name } = req.body;
@@ -57,7 +57,7 @@ const updatePlatform = asyncHandler(async (req, res) => {
 });
 
 
-// Toggles the active status of a platform
+// Purpose: Toggles the active status of a platform
 const togglePlatformStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -81,7 +81,7 @@ const togglePlatformStatus = asyncHandler(async (req, res) => {
 });
 
 
-// Deletes a platform by ID
+// Purpose: Deletes a platform by ID
 const deletePlatform = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -101,7 +101,7 @@ const deletePlatform = asyncHandler(async (req, res) => {
 });
 
 
-// Retrieves all platforms with pagination and optional active status filtering
+// Purpose: Retrieves all platforms with pagination and optional active status filtering
 const getAllPlatforms = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 20;
