@@ -36,6 +36,12 @@ const productSchema = new Schema(
     reviewCount: { type: Number, default: 0 },
     viewCount: { type: Number, default: 0, index: true },
     isFeatured: { type: Boolean, default: false },
+    featuredExtraCommission: {
+      type: Number,
+      default: 10,
+      min: 0,
+      max: 100,
+    },
     status: {
       type: String,
       enum: ['draft', 'pending', 'approved', 'rejected', 'active'],

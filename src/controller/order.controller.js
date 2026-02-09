@@ -62,7 +62,7 @@ const createWalletOrder = async (checkoutId, userId, req) => {
           session,
           new: true 
         }
-      ).populate('items.productId', 'name price stock');
+      ).populate('items.productId', 'name price stock isFeatured featuredExtraCommission');
 
       if (!checkout) {
         await session.abortTransaction();
@@ -137,7 +137,12 @@ const createWalletOrder = async (checkoutId, userId, req) => {
 
         const finalUnitPrice = checkoutItem.unitPrice || checkoutItem.discountedPrice || product.price;
         const lineTotal = Math.round(finalUnitPrice * checkoutItem.qty * 100) / 100;
-        const itemRev = computeItemRevenue(lineTotal, commissionRate);
+        const isFeaturedProduct = product?.isFeatured === true;
+        const featuredExtraCommissionPercent = typeof product?.featuredExtraCommission === 'number'
+          ? product.featuredExtraCommission
+          : 10;
+        const extraCommissionRate = isFeaturedProduct ? featuredExtraCommissionPercent : 0;
+        const itemRev = computeItemRevenue(lineTotal, commissionRate, extraCommissionRate);
 
         let sellerId = checkoutItem.sellerId;
         if (sellerId && typeof sellerId === 'object' && sellerId._id) {
@@ -160,6 +165,8 @@ const createWalletOrder = async (checkoutId, userId, req) => {
           assignedKeyIds: assignedKeys.map(key => key._id),
           sellerEarning: itemRev.sellerEarning,
           commissionAmount: itemRev.commissionAmount,
+          normalCommissionAmount: itemRev.normalCommissionAmount,
+          featuredExtraCommissionAmount: itemRev.featuredExtraCommissionAmount,
           keyDeliveryStatus: 'pending',
         });
       }
@@ -187,12 +194,50 @@ const createWalletOrder = async (checkoutId, userId, req) => {
         }
       } while (attempts < maxAttempts);
 
+      const aggregateFromItems = () => {
+        let totalLine = 0;
+        let totalNormalCommission = 0;
+        let totalFeaturedExtraCommission = 0;
+        let totalSeller = 0;
+        for (const item of orderItems) {
+          const line = Number(item.lineTotal) || 0;
+          const normalCommission = Number(item.normalCommissionAmount || 0);
+          const featuredExtra = Number(item.featuredExtraCommissionAmount || 0);
+          const sellerEarn = Number(item.sellerEarning || 0);
+          totalLine += line;
+          totalNormalCommission += normalCommission;
+          totalFeaturedExtraCommission += featuredExtra;
+          totalSeller += sellerEarn;
+        }
+        const totalCommission = Math.round((totalNormalCommission + totalFeaturedExtraCommission) * 100) / 100;
+        const safeSeller = Math.max(0, Math.round(totalSeller * 100) / 100);
+        const adminEarning = Math.round((totalCommission + revenue.handlingFee) * 100) / 100;
+        return {
+          totalLine,
+          totalNormalCommission: Math.round(totalNormalCommission * 100) / 100,
+          totalFeaturedExtraCommission: Math.round(totalFeaturedExtraCommission * 100) / 100,
+          totalCommission,
+          sellerEarning: safeSeller,
+          adminEarning,
+        };
+      };
+
+      const aggregated = aggregateFromItems();
+      const finalRevenue = {
+        ...revenue,
+        commissionAmount: aggregated.totalCommission,
+        sellerEarning: aggregated.sellerEarning,
+        adminEarning: aggregated.adminEarning,
+        normalCommissionAmount: aggregated.totalNormalCommission,
+        featuredExtraCommissionAmount: aggregated.totalFeaturedExtraCommission,
+      };
+
       logRevenueVerification(
         revenue.productSubtotal,
         revenue.handlingFee,
-        revenue.commissionAmount,
-        revenue.sellerEarning,
-        revenue.adminEarning,
+        finalRevenue.commissionAmount,
+        finalRevenue.sellerEarning,
+        finalRevenue.adminEarning,
         revenue.totalPaid
       );
 
@@ -207,17 +252,19 @@ const createWalletOrder = async (checkoutId, userId, req) => {
         totalAmount: productSubtotal,
         buyerHandlingFee: revenue.handlingFee,
         grandTotal: revenue.totalPaid,
-        adminEarnings: revenue.adminEarning,
+        adminEarnings: finalRevenue.adminEarning,
         productSubtotal: revenue.productSubtotal,
         handlingFee: revenue.handlingFee,
         commissionRate: revenue.commissionRate,
-        commissionAmount: revenue.commissionAmount,
-        sellerEarning: revenue.sellerEarning,
-        adminEarning: revenue.adminEarning,
+        commissionAmount: finalRevenue.commissionAmount,
+        normalCommissionAmount: finalRevenue.normalCommissionAmount,
+        featuredExtraCommissionAmount: finalRevenue.featuredExtraCommissionAmount,
+        sellerEarning: finalRevenue.sellerEarning,
+        adminEarning: finalRevenue.adminEarning,
         totalPaid: revenue.totalPaid,
         paymentProvider: 'wallet',
         payoutStatus: 'pending',
-        payoutAmount: revenue.sellerEarning,
+        payoutAmount: finalRevenue.sellerEarning,
         couponId: checkout.couponId,
         paymentMethod: 'Wallet',
         paymentStatus: 'paid',
@@ -268,20 +315,31 @@ const createWalletOrder = async (checkoutId, userId, req) => {
             sellerId: item.sellerId,
             amount: 0,
             commission: 0,
+            lineTotal: 0,
+            extraFeaturedCommission: 0,
           });
         }
         const payout = sellerPayouts.get(sellerId);
         payout.amount += item.sellerEarning;
         payout.commission += item.commissionAmount;
+        payout.lineTotal += item.lineTotal;
+        payout.extraFeaturedCommission += item.featuredExtraCommissionAmount || 0;
       }
 
       for (const [sellerId, payoutData] of sellerPayouts) {
-        const grossAmount = payoutData.amount + payoutData.commission;
+        const grossAmount = payoutData.lineTotal || (payoutData.amount + payoutData.commission);
+        const baseCommissionFromGross = grossAmount * commissionRate;
+        const extraFeaturedCommissionTotal = payoutData.extraFeaturedCommission || 0;
+        const desiredTotalCommission = baseCommissionFromGross + extraFeaturedCommissionTotal;
+        const effectiveCommissionRate = grossAmount > 0
+          ? Math.min(1, Math.max(0, desiredTotalCommission / grossAmount))
+          : commissionRate;
         await schedulePayout({
           orderId: createdOrder._id,
           sellerId: payoutData.sellerId,
           amount: grossAmount,
           orderCompletedAt: createdOrder.createdAt,
+          commissionRateOverride: effectiveCommissionRate,
         }, session);
       }
 
@@ -429,7 +487,7 @@ const createOrder = asyncHandler(async (req, res) => {
   }
 
   const checkout = await Checkout.findById(checkoutId)
-    .populate('items.productId', 'name price stock');
+    .populate('items.productId', 'name price stock isFeatured featuredExtraCommission');
   
   if (!checkout) {
     throw new ApiError(404, 'Checkout session not found');
@@ -644,7 +702,12 @@ const createOrder = asyncHandler(async (req, res) => {
 
       const finalUnitPrice = checkoutItem.unitPrice || checkoutItem.discountedPrice || product.price;
       const lineTotal = Math.round(finalUnitPrice * checkoutItem.qty * 100) / 100;
-      const itemRev = computeItemRevenue(lineTotal, commissionRate);
+      const isFeaturedProduct = product?.isFeatured === true;
+      const featuredExtraCommissionPercent = typeof product?.featuredExtraCommission === 'number'
+        ? product.featuredExtraCommission
+        : 10;
+      const extraCommissionRate = isFeaturedProduct ? featuredExtraCommissionPercent : 0;
+      const itemRev = computeItemRevenue(lineTotal, commissionRate, extraCommissionRate);
 
       let sellerId = checkoutItem.sellerId;
       if (sellerId && typeof sellerId === 'object' && sellerId._id) {
@@ -671,6 +734,8 @@ const createOrder = asyncHandler(async (req, res) => {
         assignedKeyIds: assignedKeys.map(key => key._id),
         sellerEarning: itemRev.sellerEarning,
         commissionAmount: itemRev.commissionAmount,
+        normalCommissionAmount: itemRev.normalCommissionAmount,
+        featuredExtraCommissionAmount: itemRev.featuredExtraCommissionAmount,
         keyDeliveryStatus: 'pending',
       });
     }
@@ -714,12 +779,50 @@ const createOrder = asyncHandler(async (req, res) => {
       }
     } while (attempts < maxAttempts);
 
+    const aggregateFromItems = () => {
+      let totalLine = 0;
+      let totalNormalCommission = 0;
+      let totalFeaturedExtraCommission = 0;
+      let totalSeller = 0;
+      for (const item of orderItems) {
+        const line = Number(item.lineTotal) || 0;
+        const normalCommission = Number(item.normalCommissionAmount || 0);
+        const featuredExtra = Number(item.featuredExtraCommissionAmount || 0);
+        const sellerEarn = Number(item.sellerEarning || 0);
+        totalLine += line;
+        totalNormalCommission += normalCommission;
+        totalFeaturedExtraCommission += featuredExtra;
+        totalSeller += sellerEarn;
+      }
+      const totalCommission = Math.round((totalNormalCommission + totalFeaturedExtraCommission) * 100) / 100;
+      const safeSeller = Math.max(0, Math.round(totalSeller * 100) / 100);
+      const adminEarning = Math.round((totalCommission + revenue.handlingFee) * 100) / 100;
+      return {
+        totalLine,
+        totalNormalCommission: Math.round(totalNormalCommission * 100) / 100,
+        totalFeaturedExtraCommission: Math.round(totalFeaturedExtraCommission * 100) / 100,
+        totalCommission,
+        sellerEarning: safeSeller,
+        adminEarning,
+      };
+    };
+
+    const aggregated = aggregateFromItems();
+    const finalRevenue = {
+      ...revenue,
+      commissionAmount: aggregated.totalCommission,
+      sellerEarning: aggregated.sellerEarning,
+      adminEarning: aggregated.adminEarning,
+      normalCommissionAmount: aggregated.totalNormalCommission,
+      featuredExtraCommissionAmount: aggregated.totalFeaturedExtraCommission,
+    };
+
     logRevenueVerification(
       revenue.productSubtotal,
       revenue.handlingFee,
-      revenue.commissionAmount,
-      revenue.sellerEarning,
-      revenue.adminEarning,
+      finalRevenue.commissionAmount,
+      finalRevenue.sellerEarning,
+      finalRevenue.adminEarning,
       revenue.totalPaid
     );
 
@@ -742,17 +845,19 @@ const createOrder = asyncHandler(async (req, res) => {
       totalAmount: productSubtotal,
       buyerHandlingFee: revenue.handlingFee,
       grandTotal: revenue.totalPaid,
-      adminEarnings: revenue.adminEarning,
+      adminEarnings: finalRevenue.adminEarning,
       productSubtotal: revenue.productSubtotal,
       handlingFee: revenue.handlingFee,
       commissionRate: revenue.commissionRate,
-      commissionAmount: revenue.commissionAmount,
-      sellerEarning: revenue.sellerEarning,
-      adminEarning: revenue.adminEarning,
+      commissionAmount: finalRevenue.commissionAmount,
+      normalCommissionAmount: finalRevenue.normalCommissionAmount,
+      featuredExtraCommissionAmount: finalRevenue.featuredExtraCommissionAmount,
+      sellerEarning: finalRevenue.sellerEarning,
+      adminEarning: finalRevenue.adminEarning,
       totalPaid: revenue.totalPaid,
       paymentProvider: paymentProviderValue,
       payoutStatus: 'pending',
-      payoutAmount: revenue.sellerEarning,
+      payoutAmount: finalRevenue.sellerEarning,
       couponId: checkout.couponId,
       paymentMethod: checkout.paymentMethod || (checkout.walletAmount > 0 && checkout.cardAmount === 0 ? 'Wallet' : 'PayPal'),
       paymentStatus: 'paid',
@@ -803,20 +908,31 @@ const createOrder = asyncHandler(async (req, res) => {
           sellerId: item.sellerId,
           amount: 0,
           commission: 0,
+          lineTotal: 0,
+          extraFeaturedCommission: 0,
         });
       }
       const payout = sellerPayouts.get(sellerId);
       payout.amount += item.sellerEarning;
       payout.commission += item.commissionAmount;
+      payout.lineTotal += item.lineTotal;
+      payout.extraFeaturedCommission += item.featuredExtraCommissionAmount || 0;
     }
 
     for (const [sellerId, payoutData] of sellerPayouts) {
-      const grossAmount = payoutData.amount + payoutData.commission;
+      const grossAmount = payoutData.lineTotal || (payoutData.amount + payoutData.commission);
+      const baseCommissionFromGross = grossAmount * commissionRate;
+      const extraFeaturedCommissionTotal = payoutData.extraFeaturedCommission || 0;
+      const desiredTotalCommission = baseCommissionFromGross + extraFeaturedCommissionTotal;
+      const effectiveCommissionRate = grossAmount > 0
+        ? Math.min(1, Math.max(0, desiredTotalCommission / grossAmount))
+        : commissionRate;
       await schedulePayout({
         orderId: createdOrder._id,
         sellerId: payoutData.sellerId,
         amount: grossAmount,
         orderCompletedAt: createdOrder.createdAt,
+        commissionRateOverride: effectiveCommissionRate,
       }, session);
     }
 

@@ -16,7 +16,7 @@ import {
   getAllPayouts,
   processPayout,
   getAllUsers,
-  banUser,
+  banUser, 
   getDashboardStats,
   moderateChat,
   getCommissionRate,
@@ -28,9 +28,10 @@ import {
   getBuyerHandlingFeeSetting,
   updateBuyerHandlingFeeSetting,
   getHandlingFeeStats,
+  updateProductFeaturedSettings,
 } from "../controller/admin.controller.js";
 const router = Router();
-
+ 
 router.use(verifyJWT, authorizeRoles("admin"));
 
 router.route("/seller/:sellerId/approve").post(approveSeller);
@@ -43,6 +44,7 @@ router.route("/sellers").get(getAllSellers);
 router.route("/product/:productId/approve").post(approveProduct);
 router.route("/product/:productId/reject").post(rejectProduct);
 router.route("/product/:productId").get(getProductDetails);
+router.route("/product/:productId/featured").patch(updateProductFeaturedSettings);
 router.route("/products/pending").get(getPendingProducts);
 router.route("/products").get(getAllProducts);
 

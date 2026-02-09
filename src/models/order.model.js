@@ -11,6 +11,8 @@ const orderItemSchema = new Schema(
     assignedKeyIds: [{ type: Schema.Types.ObjectId, ref: "LicenseKey" }],
     sellerEarning: { type: Number, default: 0 },
     commissionAmount: { type: Number, default: 10 },
+    normalCommissionAmount: { type: Number, default: 0 },
+    featuredExtraCommissionAmount: { type: Number, default: 0 },
     keyDeliveredAt: Date,
     keyDeliveryEmail: String,
     keyDeliveryStatus: {
@@ -47,6 +49,8 @@ const orderSchema = new Schema(
     handlingFee: { type: Number, default: 0 },
     commissionRate: { type: Number, default: null },
     commissionAmount: { type: Number, default: 0 },
+    normalCommissionAmount: { type: Number, default: 0 },
+    featuredExtraCommissionAmount: { type: Number, default: 0 },
     sellerEarning: { type: Number, default: 0 },
     adminEarning: { type: Number, default: 0 },
     totalPaid: { type: Number, default: null },

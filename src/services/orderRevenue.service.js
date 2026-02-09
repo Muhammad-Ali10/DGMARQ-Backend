@@ -33,12 +33,21 @@ export const computeOrderRevenue = (productSubtotal, handlingFee, commissionRate
 };
 
 // Purpose: Computes revenue breakdown for a single order item
-export const computeItemRevenue = (lineTotal, commissionRate) => {
+export const computeItemRevenue = (lineTotal, commissionRate, extraCommissionRate = 0) => {
   const line = round2(Math.max(0, Number(lineTotal)));
-  const rate = normalizeCommissionRate(commissionRate);
-  const commissionAmount = round2(line * rate);
+  const baseRate = normalizeCommissionRate(commissionRate);
+  const extraRate = normalizeCommissionRate(extraCommissionRate);
+  const normalCommissionAmount = round2(line * baseRate);
+  const featuredExtraCommissionAmount = round2(line * extraRate);
+  const commissionAmount = round2(normalCommissionAmount + featuredExtraCommissionAmount);
   const sellerEarning = round2(line - commissionAmount);
-  return { lineTotal: line, commissionAmount, sellerEarning: Math.max(0, sellerEarning) };
+  return {
+    lineTotal: line,
+    commissionAmount,
+    sellerEarning: Math.max(0, sellerEarning),
+    normalCommissionAmount,
+    featuredExtraCommissionAmount,
+  };
 };
 
 // Purpose: Logs revenue verification details in non-production environments

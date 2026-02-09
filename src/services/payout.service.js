@@ -50,21 +50,24 @@ export const getCommissionRate = async () => {
   return DEFAULT_COMMISSION_RATE;
 };
 
-// Purpose: Calculates commission amount based on current commission rate
-export const calculateCommission = async (totalAmount) => {
-  const commissionRate = await getCommissionRate();
+// Purpose: Calculates commission amount based on current or overridden commission rate
+export const calculateCommission = async (totalAmount, commissionRateOverride = null) => {
+  let commissionRate = commissionRateOverride;
+  if (typeof commissionRate !== 'number' || commissionRate < 0) {
+    commissionRate = await getCommissionRate();
+  }
   return totalAmount * commissionRate;
 };
 
 // Purpose: Schedules a payout for seller with 15-day hold period
 export const schedulePayout = async (payoutData, session = null) => {
-  const { orderId, sellerId, amount, orderCompletedAt } = payoutData;
+  const { orderId, sellerId, amount, orderCompletedAt, commissionRateOverride = null } = payoutData;
 
   const completionDate = orderCompletedAt ? new Date(orderCompletedAt) : new Date();
   const holdDays = (typeof PAYOUT_HOLD_DAYS === 'number' && PAYOUT_HOLD_DAYS >= 0) ? PAYOUT_HOLD_DAYS : 15;
   const holdUntil = new Date(completionDate.getTime() + holdDays * 24 * 60 * 60 * 1000);
   const grossAmount = amount;
-  const commissionAmount = await calculateCommission(grossAmount);
+  const commissionAmount = await calculateCommission(grossAmount, commissionRateOverride);
   const netAmount = grossAmount - commissionAmount;
 
   const payoutDataToSave = {

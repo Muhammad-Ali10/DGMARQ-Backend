@@ -422,6 +422,48 @@ const getAllProducts = asyncHandler(async (req, res) => {
   );
 });
 
+// Purpose: Updates featured status and extra commission for a product (admin only)
+const updateProductFeaturedSettings = asyncHandler(async (req, res) => {
+  const { productId } = req.params;
+  const { isFeatured, featuredExtraCommission } = req.body;
+
+  if (!mongoose.Types.ObjectId.isValid(productId)) {
+    throw new ApiError(400, "Invalid product ID");
+  }
+
+  const update = {};
+
+  if (typeof isFeatured === 'boolean') {
+    update.isFeatured = isFeatured;
+  }
+
+  if (featuredExtraCommission !== undefined) {
+    const value = Number(featuredExtraCommission);
+    if (!Number.isFinite(value) || value < 0 || value > 100) {
+      throw new ApiError(400, "Featured extra commission must be a number between 0 and 100");
+    }
+    update.featuredExtraCommission = value;
+  }
+
+  if (Object.keys(update).length === 0) {
+    throw new ApiError(400, "No valid fields provided to update featured settings");
+  }
+
+  const product = await Product.findByIdAndUpdate(
+    productId,
+    { $set: update },
+    { new: true }
+  );
+
+  if (!product) {
+    throw new ApiError(404, "Product not found");
+  }
+
+  return res.status(200).json(
+    new ApiResponse(200, product, "Product featured settings updated successfully")
+  );
+});
+
 // Purpose: Retrieves detailed product information by ID for admin view
 const getProductDetails = asyncHandler(async (req, res) => {
   const { productId } = req.params;
@@ -655,6 +697,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     ReturnRefund.countDocuments({ status: 'pending' }),
   ]);
 
+  console.log(totalRevenue[0]);
   const revenue = totalRevenue[0]?.total || 0;
 
   const sevenDaysAgo = new Date();
@@ -668,6 +711,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     ? ((totalOrders / totalUsers) * 100).toFixed(2)
     : '0.00';
 
+    console.log(totalOrders, );
   return res.status(200).json(
     new ApiResponse(200, {
       users: {
@@ -696,7 +740,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
       },
       conversations: {
         active: activeConversations,
-      },
+      }, 
       refunds: {
         total: totalRefunds,
         approved: approvedRefunds,
@@ -1002,5 +1046,6 @@ export {
   getBuyerHandlingFeeSetting,
   updateBuyerHandlingFeeSetting,
   getHandlingFeeStats,
+  updateProductFeaturedSettings,
 };
 

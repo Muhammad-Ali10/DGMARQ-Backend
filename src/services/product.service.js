@@ -183,6 +183,12 @@ export const prepareQueryFilters = async (query, user = null) => {
     }
   }
 
+  if (query.isFeatured === 'true' || query.isFeatured === true) {
+    match.isFeatured = true;
+  } else if (query.isFeatured === 'false' || query.isFeatured === false) {
+    match.isFeatured = false;
+  }
+
   if (query.search) {
     match.name = { $regex: query.search, $options: "i" };
   }
@@ -370,6 +376,7 @@ export const fetchProducts = async (query, user = null) => {
         discount: 1,
         status: 1,
         sellerId: 1,
+        featuredExtraCommission: 1,
         category: {
           _id: "$category._id",
           name: "$category.name",
