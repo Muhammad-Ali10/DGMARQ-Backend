@@ -16,9 +16,13 @@ export const calculateAverageRating = async (productId) => {
   
   updateValidateMongoIds([{ id: productId, name: "Product" }]);
 
+  // Only count valid, non-refunded reviews for product rating (marketplace rule: exclude invalidated/full-refund)
   const result = await Review.aggregate([
     {
-      $match: { productId: new mongoose.Types.ObjectId(productId) },
+      $match: {
+        productId: new mongoose.Types.ObjectId(productId),
+        isInvalidated: { $ne: true },
+      },
     },
     {
       $group: {
@@ -41,4 +45,24 @@ export const calculateAverageRating = async (productId) => {
   );
 
   return { averageRating, reviewCount };
+};
+
+/**
+ * Invalidates all reviews for an order (e.g. when order is fully refunded).
+ * Invalidated reviews are excluded from product/seller ratings and from public listing.
+ * Returns { modifiedCount, productIds } so callers can recalculate product ratings.
+ */
+export const invalidateReviewsForOrder = async (orderId) => {
+  if (!orderId) return { modifiedCount: 0, productIds: [] };
+  updateValidateMongoIds([{ id: orderId, name: "Order" }]);
+  const toInvalidate = await Review.find({ orderId, isInvalidated: { $ne: true } }).select("productId").lean();
+  const productIds = [...new Set(toInvalidate.map((r) => r.productId?.toString()).filter(Boolean))];
+  const result = await Review.updateMany(
+    { orderId },
+    { $set: { isInvalidated: true } }
+  );
+  if (result.modifiedCount > 0) {
+    logger.debug("Invalidated reviews for fully refunded order", { orderId, modifiedCount: result.modifiedCount });
+  }
+  return { modifiedCount: result.modifiedCount, productIds };
 };

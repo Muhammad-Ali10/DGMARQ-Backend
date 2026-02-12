@@ -1,5 +1,6 @@
 import { Payout } from '../models/payout.model.js';
 import { Order } from '../models/order.model.js';
+import { ReturnRefund } from '../models/returnrefund.model.js';
 import { Seller } from '../models/seller.model.js';
 import { User } from '../models/user.model.js';
 import { SellerPayoutAccount } from '../models/sellerPayoutAccount.model.js';
@@ -59,13 +60,15 @@ export const calculateCommission = async (totalAmount, commissionRateOverride = 
   return totalAmount * commissionRate;
 };
 
-// Purpose: Schedules a payout for seller with 15-day hold period
+// Purpose: Schedules a payout for seller with 15-day hold period (escrow model).
+// Only call after payment is captured and order is completed; failed/pending payments must NOT trigger this.
 export const schedulePayout = async (payoutData, session = null) => {
   const { orderId, sellerId, amount, orderCompletedAt, commissionRateOverride = null } = payoutData;
 
   const completionDate = orderCompletedAt ? new Date(orderCompletedAt) : new Date();
   const holdDays = (typeof PAYOUT_HOLD_DAYS === 'number' && PAYOUT_HOLD_DAYS >= 0) ? PAYOUT_HOLD_DAYS : 15;
   const holdUntil = new Date(completionDate.getTime() + holdDays * 24 * 60 * 60 * 1000);
+  // Payout amount excludes platform commission; buyer handling fees are order-level and not part of seller line total
   const grossAmount = amount;
   const commissionAmount = await calculateCommission(grossAmount, commissionRateOverride);
   const netAmount = grossAmount - commissionAmount;
@@ -115,6 +118,14 @@ export const adjustPayoutForRefund = async (orderId, sellerId, deductGross, dedu
     refundedLicenseKeyIds: mergedKeyIds,
   };
   payout.notes = (payout.notes || '') ? `${payout.notes}; Adjusted for refund.` : 'Adjusted for partial refund.';
+  // Full refund (or multiple partials) can reduce net to zero: block payout so cron never releases it
+  if (payout.netAmount <= 0) {
+    payout.status = 'blocked';
+    payout.blockReason = payout.netAmount === 0
+      ? 'Fully adjusted for refund(s) – payout cancelled'
+      : 'Invalid payout amount after refund adjustment';
+    payout.notes = (payout.notes || '') + (payout.netAmount === 0 ? ' Payout cancelled (zero net).' : '');
+  }
   if (session) {
     await payout.save({ session });
   } else {
@@ -123,7 +134,32 @@ export const adjustPayoutForRefund = async (orderId, sellerId, deductGross, dedu
   return payout;
 };
 
+// Purpose: Block all pending/hold payouts for an order (e.g. when order is fully refunded). Ensures no release until dispute/refund resolved.
+export const blockPayoutsForOrder = async (orderId, reason = 'Order fully refunded – payout cancelled', session = null) => {
+  const orderIdObj = mongoose.Types.ObjectId.isValid(orderId) ? new mongoose.Types.ObjectId(orderId) : orderId;
+  const result = await Payout.updateMany(
+    {
+      orderId: orderIdObj,
+      requestType: 'scheduled',
+      status: { $in: ['pending', 'hold'] },
+    },
+    {
+      $set: {
+        status: 'blocked',
+        blockReason: reason,
+        notes: reason,
+      },
+    },
+    { session: session || undefined }
+  );
+  if (result.modifiedCount > 0) {
+    logger.info('[PAYOUT] Blocked payouts for order (full refund)', { orderId: orderIdObj, count: result.modifiedCount });
+  }
+  return result;
+};
+
 // Purpose: Processes scheduled payouts that are ready for release after hold period. Includes blocked payouts for re-check (auto-process when fixed).
+// Enforces: payout only when order paid+completed, no open dispute, no refunded order.
 export const processScheduledPayouts = async () => {
   const now = new Date();
 
@@ -155,23 +191,51 @@ export const processScheduledPayouts = async () => {
         continue;
       }
 
+      const orderId = payout.orderId?._id || payout.orderId;
+      const order = await Order.findById(orderId).select('paymentStatus orderStatus').lean();
+      // Status sync: do not release if order is refunded or not in a valid paid state
+      if (!order || order.paymentStatus !== 'paid') {
+        const blockReason = !order ? 'Order not found' : order.paymentStatus === 'refunded' ? 'Order fully refunded – payout blocked' : `Order payment status: ${order.paymentStatus}`;
+        logPayoutAttempt(payout.sellerId?.toString?.(), payoutAmount, 'blocked', blockReason);
+        payout.status = 'blocked';
+        payout.blockReason = blockReason;
+        payout.notes = blockReason;
+        await payout.save();
+        results.errors.push({ payoutId: payout._id, error: blockReason });
+        results.failed++;
+        continue;
+      }
+
+      // Dispute handling: block payout if order has an open refund request (no release until dispute resolved)
+      const openRefund = await ReturnRefund.findOne({
+        orderId,
+        status: { $in: ['PENDING', 'SELLER_REVIEW', 'SELLER_APPROVED', 'ADMIN_REVIEW', 'ADMIN_APPROVED', 'ON_HOLD_INSUFFICIENT_FUNDS', 'WAITING_FOR_MANUAL_REFUND'] },
+      });
+      if (openRefund) {
+        const blockReason = 'Order has open refund request – payout held until dispute resolved';
+        logPayoutAttempt(payout.sellerId?.toString?.(), payoutAmount, 'blocked', blockReason);
+        payout.status = 'blocked';
+        payout.blockReason = blockReason;
+        payout.notes = blockReason;
+        await payout.save();
+        results.errors.push({ payoutId: payout._id, error: blockReason });
+        results.failed++;
+        continue;
+      }
+
       // Blocked payouts: re-check eligibility and that order has no refunded items; if eligible and no refunds, set to pending and process (funds never removed)
       if (payout.status === 'blocked') {
         if (!isPayoutEligible(seller)) {
           results.failed++;
           continue;
         }
-        const orderForRefundCheck = await Order.findById(payout.orderId);
-        if (orderForRefundCheck) {
-          const hasRefundedItems = orderForRefundCheck.items.some(item => item.refunded === true);
-          if (hasRefundedItems || orderForRefundCheck.paymentStatus === 'refunded') {
-            payout.blockReason = 'Order contains refunded items - payout blocked';
-            payout.notes = payout.blockReason;
-            await payout.save();
-            results.errors.push({ payoutId: payout._id, error: payout.blockReason });
-            results.failed++;
-            continue;
-          }
+        if (order && order.paymentStatus === 'refunded') {
+          payout.blockReason = 'Order fully refunded - payout blocked';
+          payout.notes = payout.blockReason;
+          await payout.save();
+          results.errors.push({ payoutId: payout._id, error: payout.blockReason });
+          results.failed++;
+          continue;
         }
         payout.status = 'pending';
         payout.blockReason = null;
@@ -270,41 +334,7 @@ export const processScheduledPayouts = async () => {
         continue;
       }
 
-      const order = await Order.findById(payout.orderId);
-      if (order) {
-        const hasRefundedItems = order.items.some(item => item.refunded === true);
-        if (hasRefundedItems) {
-          payout.status = 'blocked';
-          payout.blockReason = 'Order has refunded items - payout blocked';
-          payout.notes = 'Order has refunded items - payout blocked';
-          payout.failedReason = 'Order contains refunded items';
-          await payout.save();
-          
-          results.errors.push({
-            payoutId: payout._id,
-            error: 'Order has refunded items',
-          });
-          results.failed++;
-          continue;
-        }
-
-        if (order.paymentStatus === 'refunded') {
-          payout.status = 'blocked';
-          payout.blockReason = 'Order is refunded - payout blocked';
-          payout.notes = 'Order is refunded - payout blocked';
-          payout.failedReason = 'Order payment status is refunded';
-          await payout.save();
-          
-          results.errors.push({
-            payoutId: payout._id,
-            error: 'Order is refunded',
-          });
-          results.failed++;
-          continue;
-        }
-
-        // Refunds are handled via negative payout entries; no separate block needed
-      }
+      // Order already validated above (paymentStatus === 'paid', no open dispute)
 
       if (payout.status === 'released' && payout.paypalBatchId) {
         logger.warn(`Payout ${payout._id} already released (idempotent)`, {

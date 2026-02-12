@@ -4,10 +4,10 @@ export  const SELLER_STATUS = ['pending', 'active', 'banned'];
 export  const ROLE = ['customer', 'seller', 'admin'];
 // Purpose: Define payment transaction statuses
 export  const PAYMENT_STATUS = ['pending', 'paid', 'failed', 'refunded'];
-// Purpose: Define order lifecycle statuses (partially_completed = some keys refunded, not all)
-export const ORDER_STATUS = ['pending', 'processing', 'completed', 'cancelled', 'returned', 'partially_completed'];
-// Purpose: Define seller payout statuses
-export  const PAYOUT_STATUS = ['pending', 'released', 'hold', 'failed', 'blocked'];
+// Purpose: Define order lifecycle statuses. Refund state derived from license keys only: 0 refunded=completed, some=PARTIALLY_REFUNDED, all=REFUNDED.
+export const ORDER_STATUS = ['pending', 'processing', 'completed', 'cancelled', 'returned', 'partially_completed', 'REFUNDED', 'PARTIALLY_REFUNDED'];
+// Purpose: Define seller payout statuses (pending=held in escrow; released=sent; blocked=held/cancelled; failed=PayPal failed)
+export const PAYOUT_STATUS = ['pending', 'released', 'hold', 'failed', 'blocked'];
 // Purpose: Define refund request statuses (strict flow)
 export const REFUND_STATUS = [
   'PENDING',

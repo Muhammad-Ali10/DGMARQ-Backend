@@ -12,9 +12,10 @@ import { Seller } from "../models/seller.model.js";
 import { auditLog } from "../services/audit.service.js";
 import { REFUND_STATUS, REFUND_WINDOW_DAYS, PAYOUT_HOLD_DAYS, REFUND_METHOD } from "../constants.js";
 import { creditWallet } from "../services/wallet.service.js";
-import { getSellerBalance, adjustPayoutForRefund } from "../services/payout.service.js";
+import { getSellerBalance, adjustPayoutForRefund, blockPayoutsForOrder } from "../services/payout.service.js";
 import { processRefund as processPayPalRefund } from "../services/payment.service.js";
 import { Transaction } from "../models/transaction.model.js";
+import { invalidateReviewsForOrder, calculateAverageRating } from "../services/review.service.js";
 
 // Helper: append refund history entry
 const pushRefundHistory = (refund, actor, action, previousStatus, newStatus, notes) => {
@@ -92,11 +93,11 @@ const createReturnRefund = asyncHandler(async (req, res) => {
     _id: orderId,
     userId,
     paymentStatus: "paid",
-    orderStatus: "completed",
+    orderStatus: { $in: ["completed", "PARTIALLY_REFUNDED", "partially_completed"] },
   }).populate("items.productId", "productType sellerId");
 
   if (!order) {
-    throw new ApiError(404, "Order not found or not eligible for refund. Only completed orders can be refunded.");
+    throw new ApiError(404, "Order not found or not eligible for refund. Only completed or partially refunded orders can request more refunds.");
   }
 
   if (!isWithinRefundWindow(order)) {
@@ -166,6 +167,11 @@ const createReturnRefund = asyncHandler(async (req, res) => {
   const actualOrderId = order._id;
   const actualSellerId = orderItem.sellerId?._id || orderItem.sellerId;
 
+  // Refund amount = order item unit price × number of keys requested (so customer/admin see correct amount before approval)
+  const unitPrice = orderItem.unitPrice ?? 0;
+  const keyCount = licenseKeyIds.length;
+  const requestedRefundAmount = keyCount > 0 ? Math.round(unitPrice * keyCount * 100) / 100 : (orderItem.lineTotal ?? 0);
+
   // All refund requests go to admin; seller cannot approve or reject
   const initialStatus = "ADMIN_REVIEW";
   const initialStage = "ADMIN_REVIEW";
@@ -178,6 +184,7 @@ const createReturnRefund = asyncHandler(async (req, res) => {
     reason: reason.trim(),
     status: initialStatus,
     currentStage: initialStage,
+    refundAmount: requestedRefundAmount,
     refundMethod: isManualRefund ? (refundMethod === "MANUAL" ? "ORIGINAL_PAYMENT" : refundMethod) : "WALLET",
     customerPayPalEmail: isManualRefund ? customerPayPalEmail.trim() : null,
     licenseKeyIds: licenseKeyIds.map((id) => new mongoose.Types.ObjectId(id)),
@@ -559,7 +566,8 @@ const processRefundExecution = async (refund, actorUserId, actorRole) => {
     const order = await Order.findById(orderId).session(session);
     if (!order) throw new ApiError(404, "Order not found");
     if (order.paymentStatus !== "paid") throw new ApiError(400, "Order is not paid");
-    if (order.orderStatus !== "completed") throw new ApiError(400, "Only completed orders can be refunded");
+    const allowedOrderStatuses = ["completed", "PARTIALLY_REFUNDED", "partially_completed"];
+    if (!allowedOrderStatuses.includes(order.orderStatus)) throw new ApiError(400, "Only completed or partially refunded orders can be refunded");
 
     const productIdStr = productId.toString();
     let orderItem = order.items.find((item) => {
@@ -631,8 +639,10 @@ const processRefundExecution = async (refund, actorUserId, actorRole) => {
       }
     }
 
+    // Commission proportional to refunded keys (platform commission reversed for refunded portion)
     const commissionPerUnit = qty > 0 ? (orderItem.lineTotal - sellerEarningTotal) / qty : 0;
     const refundCommission = keyCount > 0 ? Math.round(commissionPerUnit * keyCount * 100) / 100 : 0;
+    // Partial refund BEFORE payout: reduce scheduled payout (escrow). AFTER payout: ledger deduction (negative Payout).
     if (payoutHeld) {
       await adjustPayoutForRefund(
         order._id,
@@ -644,6 +654,7 @@ const processRefundExecution = async (refund, actorUserId, actorRole) => {
         session
       );
     } else {
+      // Refund after payout released: deduct from seller (ledger-style); getSellerBalance includes negative payouts
       await Payout.create([{
         sellerId,
         orderId: order._id,
@@ -694,7 +705,7 @@ const processRefundExecution = async (refund, actorUserId, actorRole) => {
         const licenseKeyDoc = await LicenseKey.findOne({ productId }).session(session).select("keys");
         const allRefunded = licenseKeyDoc && allKeyIds.every((kid) => {
           const k = licenseKeyDoc.keys.id(kid);
-          return k && (k.isRefunded || k.isUsed);
+          return k && k.isRefunded === true;
         });
         if (allRefunded) {
           order.items[itemIndex].refunded = true;
@@ -706,12 +717,15 @@ const processRefundExecution = async (refund, actorUserId, actorRole) => {
       }
     }
 
+    // Order status derived ONLY from license-key state: 0 refunded keys → COMPLETED, some → PARTIALLY_REFUNDED, all → REFUNDED
     const allItemsRefunded = order.items.every((item) => item.refunded);
     if (allItemsRefunded) {
       order.paymentStatus = "refunded";
-      order.orderStatus = "returned";
+      order.orderStatus = "REFUNDED";
+      // Full refund before payout: cancel all scheduled payouts for this order (escrow rule – no release)
+      await blockPayoutsForOrder(order._id, "Order fully refunded – payout cancelled", session);
     } else {
-      order.orderStatus = "partially_completed";
+      order.orderStatus = "PARTIALLY_REFUNDED";
     }
     await order.save({ session });
 
@@ -722,6 +736,20 @@ const processRefundExecution = async (refund, actorUserId, actorRole) => {
 
     await session.commitTransaction();
     session.endSession();
+
+    // Full order refund: invalidate reviews so they are excluded from product/seller ratings (marketplace rule)
+    if (allItemsRefunded) {
+      try {
+        const inv = await invalidateReviewsForOrder(orderId);
+        if (inv.productIds?.length > 0) {
+          for (const pid of inv.productIds) {
+            await calculateAverageRating(pid);
+          }
+        }
+      } catch (e) {
+        logger.error("Failed to invalidate reviews for fully refunded order", { orderId, err: e.message });
+      }
+    }
 
     const { getWalletBalance } = await import("../services/wallet.service.js");
     const finalWalletBalance = await getWalletBalance(userId);
@@ -836,7 +864,7 @@ const processManualRefundCompletion = async (refund, adminUserId, manualRefundRe
       const allKeyIds = item.assignedKeyIds || [];
       if (allKeyIds.length > 0) {
         const licenseKeyDoc = await LicenseKey.findOne({ productId }).session(session).select("keys");
-        const allRefunded = licenseKeyDoc && allKeyIds.every((kid) => { const k = licenseKeyDoc.keys.id(kid); return k && (k.isRefunded || k.isUsed); });
+        const allRefunded = licenseKeyDoc && allKeyIds.every((kid) => { const k = licenseKeyDoc.keys.id(kid); return k && k.isRefunded === true; });
         if (allRefunded) {
           order.items[itemIndex].refunded = true;
           order.items[itemIndex].refundedAt = new Date();
@@ -846,12 +874,15 @@ const processManualRefundCompletion = async (refund, adminUserId, manualRefundRe
         order.items[itemIndex].refundedAt = new Date();
       }
     }
+    // Order status derived ONLY from license-key state: all keys refunded → REFUNDED, else → PARTIALLY_REFUNDED
     const allItemsRefunded = order.items.every((item) => item.refunded);
     if (allItemsRefunded) {
       order.paymentStatus = "refunded";
-      order.orderStatus = "returned";
+      order.orderStatus = "REFUNDED";
+      // Full refund: cancel all scheduled payouts for this order
+      await blockPayoutsForOrder(order._id, "Order fully refunded – payout cancelled", session);
     } else {
-      order.orderStatus = "partially_completed";
+      order.orderStatus = "PARTIALLY_REFUNDED";
     }
     await order.save({ session });
 
@@ -863,6 +894,20 @@ const processManualRefundCompletion = async (refund, adminUserId, manualRefundRe
 
     await session.commitTransaction();
     session.endSession();
+
+    // Full order refund: invalidate reviews so they are excluded from ratings (marketplace rule)
+    if (allItemsRefunded) {
+      try {
+        const inv = await invalidateReviewsForOrder(orderId);
+        if (inv.productIds?.length > 0) {
+          for (const pid of inv.productIds) {
+            await calculateAverageRating(pid);
+          }
+        }
+      } catch (e) {
+        logger.error("Failed to invalidate reviews for fully refunded order (manual)", { orderId, err: e.message });
+      }
+    }
 
     await auditLog(adminUserId, "REFUND_MANUAL_COMPLETED", `Manual refund ${refund._id} completed`, {
       actor: "admin",
@@ -1006,7 +1051,7 @@ const getCompletedOrdersForRefund = asyncHandler(async (req, res) => {
   const orders = await Order.find({
     userId,
     paymentStatus: "paid",
-    orderStatus: "completed",
+    orderStatus: { $in: ["completed", "PARTIALLY_REFUNDED", "partially_completed"] },
   })
     .select("_id createdAt totalAmount items orderCompletedAt updatedAt")
     .populate("items.productId", "name images productType")
@@ -1071,7 +1116,7 @@ const getOrderItemLicenseKeysForRefund = asyncHandler(async (req, res) => {
     _id: orderId,
     userId,
     paymentStatus: "paid",
-    orderStatus: "completed",
+    orderStatus: { $in: ["completed", "PARTIALLY_REFUNDED", "partially_completed"] },
   })
     .select("items orderCompletedAt updatedAt createdAt")
     .populate("items.productId", "productType");

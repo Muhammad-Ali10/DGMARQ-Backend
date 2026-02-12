@@ -327,7 +327,7 @@ const getSellerPerformanceMetrics = asyncHandler(async (req, res) => {
     {
       $group: {
         _id: null,
-        totalSales: { $sum: "$items.qty" },
+        totalSales: { $sum: { $subtract: ["$items.qty", { $ifNull: ["$items.refundedKeysCount", 0] }] } },
         totalRevenue: { $sum: { $subtract: ["$items.lineTotal", { $ifNull: ["$items.refundedAmount", 0] }] } },
         totalCommission: { $sum: "$items.commissionAmount" },
         netEarnings: { $sum: { $subtract: ["$items.sellerEarning", { $ifNull: ["$items.refundedSellerAmount", 0] }] } },
@@ -356,6 +356,7 @@ const getSellerPerformanceMetrics = asyncHandler(async (req, res) => {
     {
       $match: {
         "product.sellerId": new mongoose.Types.ObjectId(seller._id),
+        isInvalidated: { $ne: true },
       },
     },
     {
@@ -476,6 +477,7 @@ const getPublicSellerProfile = asyncHandler(async (req, res) => {
         $match: {
           "product.sellerId": new mongoose.Types.ObjectId(seller._id),
           isHidden: false,
+          isInvalidated: { $ne: true },
           $or: [
             { moderationStatus: "approved" },
             { moderationStatus: { $exists: false } },
@@ -647,6 +649,7 @@ const getSellerReviews = asyncHandler(async (req, res) => {
       $match: {
         "product.sellerId": new mongoose.Types.ObjectId(sellerId),
         isHidden: false,
+        isInvalidated: { $ne: true },
         $or: [
           { moderationStatus: "approved" },
           { moderationStatus: { $exists: false } },
@@ -691,6 +694,7 @@ const getSellerReviews = asyncHandler(async (req, res) => {
       $match: {
         "product.sellerId": new mongoose.Types.ObjectId(sellerId),
         isHidden: false,
+        isInvalidated: { $ne: true },
         $or: [
           { moderationStatus: "approved" },
           { moderationStatus: { $exists: false } },

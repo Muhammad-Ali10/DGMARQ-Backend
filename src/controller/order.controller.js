@@ -326,6 +326,7 @@ const createWalletOrder = async (checkoutId, userId, req) => {
         payout.extraFeaturedCommission += item.featuredExtraCommissionAmount || 0;
       }
 
+      // Escrow: schedule seller payout only after payment is captured and order completed (never on failed/pending payment)
       for (const [sellerId, payoutData] of sellerPayouts) {
         const grossAmount = payoutData.lineTotal || (payoutData.amount + payoutData.commission);
         const baseCommissionFromGross = grossAmount * commissionRate;
@@ -578,9 +579,14 @@ const createOrder = asyncHandler(async (req, res) => {
     );
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  let retryCount = 0;
+  const maxRetries = 3;
 
+  while (true) {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
   let recalculatedSubtotal = 0;
   for (const item of checkout.items) {
     const lineTotal = item.unitPrice * item.qty;
@@ -626,7 +632,6 @@ const createOrder = asyncHandler(async (req, res) => {
   checkout.walletAmount = recalculatedWalletAmount;
   checkout.cardAmount = recalculatedCardAmount;
 
-  try {
     if (recalculatedWalletAmount > 0 && !isGuestCheckout && checkout.userId) {
       try {
         await debitWallet(
@@ -919,6 +924,7 @@ const createOrder = asyncHandler(async (req, res) => {
       payout.extraFeaturedCommission += item.featuredExtraCommissionAmount || 0;
     }
 
+    // Escrow: schedule seller payout only after payment captured and order completed (PayPal/Card flow)
     for (const [sellerId, payoutData] of sellerPayouts) {
       const grossAmount = payoutData.lineTotal || (payoutData.amount + payoutData.commission);
       const baseCommissionFromGross = grossAmount * commissionRate;
@@ -992,6 +998,7 @@ const createOrder = asyncHandler(async (req, res) => {
     }
 
     await session.commitTransaction();
+    session.endSession();
 
     if (!isGuestCheckout && checkout.userId) {
       const user = await User.findById(checkout.userId);
@@ -1061,12 +1068,27 @@ const createOrder = asyncHandler(async (req, res) => {
       new ApiResponse(201, populatedOrder, 'Order created successfully')
     );
   } catch (error) {
-    if (session.inTransaction()) {
-      await session.abortTransaction();
+      const isTransientError = error.code === 112 ||
+        error.code === 251 ||
+        error.errorLabels?.includes('TransientTransactionError');
+
+      if (isTransientError && retryCount < maxRetries) {
+        retryCount++;
+        logger.warn(`[ORDER] Write conflict, retrying (${retryCount}/${maxRetries}):`, error.message);
+        if (session.inTransaction()) {
+          await session.abortTransaction();
+        }
+        session.endSession();
+        await new Promise((r) => setTimeout(r, 100 * retryCount));
+        continue;
+      }
+
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
+      session.endSession();
+      throw error;
     }
-    throw error;
-  } finally {
-    session.endSession();
   }
 });
 
@@ -1081,11 +1103,12 @@ const getOrders = asyncHandler(async (req, res) => {
   if (!isAdmin) {
     match.userId = new mongoose.Types.ObjectId(userId);
   }
-  
+  // Support comma-separated statuses for e.g. review-eligible orders (completed + PARTIALLY_REFUNDED)
   if (status) {
-    match.orderStatus = status;
+    match.orderStatus = typeof status === 'string' && status.includes(',')
+      ? { $in: status.split(',').map(s => s.trim()).filter(Boolean) }
+      : status;
   }
-  
   if (paymentStatus) {
     match.paymentStatus = paymentStatus;
   }

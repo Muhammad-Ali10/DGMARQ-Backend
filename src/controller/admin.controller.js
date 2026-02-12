@@ -661,7 +661,13 @@ const banUser = asyncHandler(async (req, res) => {
 // Purpose: Retrieves comprehensive dashboard statistics for admin overview
 const getDashboardStats = asyncHandler(async (req, res) => {
   const { ReturnRefund } = await import("../models/returnrefund.model.js");
-  
+
+  const revenuePipeline = [
+    { $match: { paymentStatus: 'paid' } },
+    { $project: { totalAmount: 1, refundedTotal: { $sum: '$items.refundedAmount' } } },
+    { $group: { _id: null, total: { $sum: { $subtract: ['$totalAmount', { $ifNull: ['$refundedTotal', 0] }] } } } },
+  ];
+
   const [
     totalUsers,
     totalSellers,
@@ -684,10 +690,7 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     Product.countDocuments({ status: { $in: ['active', 'approved'] } }),
     Product.countDocuments({ status: 'pending' }),
     Order.countDocuments({ paymentStatus: 'paid' }),
-    Order.aggregate([
-      { $match: { paymentStatus: 'paid' } },
-      { $group: { _id: null, total: { $sum: '$totalAmount' } } },
-    ]),
+    Order.aggregate(revenuePipeline),
     Payout.countDocuments({ status: 'pending' }),
     Payout.countDocuments({ status: 'released' }),
     Conversation.countDocuments({ status: 'active' }),
@@ -697,7 +700,6 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     ReturnRefund.countDocuments({ status: 'pending' }),
   ]);
 
-  console.log(totalRevenue[0]);
   const revenue = totalRevenue[0]?.total || 0;
 
   const sevenDaysAgo = new Date();
@@ -711,7 +713,6 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     ? ((totalOrders / totalUsers) * 100).toFixed(2)
     : '0.00';
 
-    console.log(totalOrders, );
   return res.status(200).json(
     new ApiResponse(200, {
       users: {

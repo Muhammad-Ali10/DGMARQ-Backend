@@ -18,7 +18,7 @@ const getMyLicenseKeys = asyncHandler(async (req, res) => {
   const orders = await Order.find({
     userId: new mongoose.Types.ObjectId(userId),
     paymentStatus: 'paid',
-    orderStatus: 'completed',
+    orderStatus: { $in: ['completed', 'PARTIALLY_REFUNDED', 'partially_completed'] },
   })
     .select('_id items createdAt')
     .populate('items.productId', 'name images')
@@ -65,11 +65,12 @@ const getMyLicenseKeys = asyncHandler(async (req, res) => {
   const allKeys = [];
   licenseKeyDocs.forEach(doc => {
     doc.keys.forEach(key => {
-      if (keyIds.some(id => id.toString() === key._id.toString())) {
+      if (keyIds.some(id => id.toString() === key._id.toString()) && !key.isRefunded) {
         allKeys.push({
           _id: key._id,
           keyType: key.keyType,
           isUsed: key.isUsed,
+          isRefunded: key.isRefunded,
           assignedAt: key.assignedAt,
           emailSent: key.emailSent,
         });
@@ -131,6 +132,10 @@ const revealLicenseKey = asyncHandler(async (req, res) => {
   const key = licenseKeyDoc.keys.id(keyId);
   if (!key) {
     throw new ApiError(404, "License key not found");
+  }
+
+  if (key.isRefunded) {
+    throw new ApiError(403, "This license key has been refunded and is no longer available");
   }
 
   const order = await Order.findOne({

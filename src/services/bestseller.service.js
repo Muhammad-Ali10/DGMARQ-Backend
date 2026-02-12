@@ -33,6 +33,7 @@ export const generateBestSellers = async () => {
         $match: {
           "product.status": { $in: ["active", "approved"] },
           isHidden: false,
+          isInvalidated: { $ne: true },
           $or: [
             { moderationStatus: "approved" },
             { moderationStatus: { $exists: false } },

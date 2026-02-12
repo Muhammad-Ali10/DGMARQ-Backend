@@ -32,10 +32,18 @@ const getProductAnalytics = asyncHandler(async (req, res) => {
     });
   }
 
-  const salesCount = await Order.countDocuments({
-    "items.productId": productId,
-    paymentStatus: "paid",
-  });
+  const salesResult = await Order.aggregate([
+    { $match: { paymentStatus: "paid" } },
+    { $unwind: "$items" },
+    { $match: { "items.productId": new mongoose.Types.ObjectId(productId) } },
+    {
+      $group: {
+        _id: null,
+        salesCount: { $sum: { $subtract: ["$items.qty", { $ifNull: ["$items.refundedKeysCount", 0] }] } },
+      },
+    },
+  ]);
+  const salesCount = salesResult[0]?.salesCount ?? 0;
 
   const wishlistCount = await Wishlist.countDocuments({
     "items.productId": productId,
@@ -84,39 +92,42 @@ const getCategoryAnalytics = asyncHandler(async (req, res) => {
   const analytics = await Analytics.findOne({ categoryId });
 
   if (!analytics) {
-    const categorySales = await Order.aggregate([
-      {
-        $match: {
-          paymentStatus: "paid",
-        },
+  const categorySales = await Order.aggregate([
+    {
+      $match: {
+        paymentStatus: "paid",
       },
-      {
-        $unwind: "$items",
+    },
+    {
+      $unwind: "$items",
+    },
+    {
+      $lookup: {
+        from: "products",
+        localField: "items.productId",
+        foreignField: "_id",
+        as: "product",
       },
-      {
-        $lookup: {
-          from: "products",
-          localField: "items.productId",
-          foreignField: "_id",
-          as: "product",
-        },
+    },
+    {
+      $unwind: "$product",
+    },
+    {
+      $match: {
+        "product.categoryId": new mongoose.Types.ObjectId(categoryId),
       },
-      {
-        $unwind: "$product",
+    },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: { $subtract: ["$items.qty", { $ifNull: ["$items.refundedKeysCount", 0] }] } },
       },
-      {
-        $match: {
-          "product.categoryId": new mongoose.Types.ObjectId(categoryId),
-        },
-      },
-      {
-        $count: "total",
-      },
-    ]);
+    },
+  ]);
 
-    const salesCount = categorySales[0]?.total || 0;
+  const salesCount = categorySales[0]?.total || 0;
 
-    const newAnalytics = await Analytics.create({
+  const newAnalytics = await Analytics.create({
       categoryId,
       categorySalesCount: salesCount,
       lastUpdated: new Date(),
@@ -153,7 +164,10 @@ const getCategoryAnalytics = asyncHandler(async (req, res) => {
       },
     },
     {
-      $count: "total",
+      $group: {
+        _id: null,
+        total: { $sum: { $subtract: ["$items.qty", { $ifNull: ["$items.refundedKeysCount", 0] }] } },
+      },
     },
   ]);
 
@@ -181,7 +195,7 @@ const getTopProducts = asyncHandler(async (req, res) => {
     .limit(parseInt(limit))
     .lean();
 
-  // Also get top products from actual order data for accuracy (effective revenue after refunds)
+  // Also get top products from actual order data (non-refunded units and revenue only)
   const orderBasedProducts = await Order.aggregate([
     {
       $match: {
@@ -194,7 +208,7 @@ const getTopProducts = asyncHandler(async (req, res) => {
     {
       $group: {
         _id: '$items.productId',
-        salesCount: { $sum: '$items.qty' },
+        salesCount: { $sum: { $subtract: ['$items.qty', { $ifNull: ['$items.refundedKeysCount', 0] }] } },
         revenue: { $sum: { $subtract: ['$items.lineTotal', { $ifNull: ['$items.refundedAmount', 0] }] } },
       },
     },
@@ -255,11 +269,11 @@ const getAnalyticsDashboard = asyncHandler(async (req, res) => {
     topProducts,
     categoryAnalytics,
   ] = await Promise.all([
-    // Get sales count from actual orders (more accurate)
+    // Get sales count from actual orders (non-refunded units only)
     Order.aggregate([
       { $match: { paymentStatus: 'paid' } },
       { $unwind: '$items' },
-      { $group: { _id: null, total: { $sum: '$items.qty' } } },
+      { $group: { _id: null, total: { $sum: { $subtract: ['$items.qty', { $ifNull: ['$items.refundedKeysCount', 0] }] } } } },
     ]),
     // Get views from Analytics collection
     Analytics.aggregate([
@@ -269,7 +283,7 @@ const getAnalyticsDashboard = asyncHandler(async (req, res) => {
     Analytics.aggregate([
       { $group: { _id: null, total: { $sum: "$wishlistCount" } } },
     ]),
-    // Get top products from actual order data
+    // Get top products from actual order data (non-refunded units only)
     Order.aggregate([
       {
         $match: {
@@ -282,7 +296,7 @@ const getAnalyticsDashboard = asyncHandler(async (req, res) => {
       {
         $group: {
           _id: '$items.productId',
-          salesCount: { $sum: '$items.qty' },
+          salesCount: { $sum: { $subtract: ['$items.qty', { $ifNull: ['$items.refundedKeysCount', 0] }] } },
         },
       },
       {
@@ -380,7 +394,7 @@ const getSellerMonthlyAnalytics = asyncHandler(async (req, res) => {
     {
       $group: {
         _id: null,
-        totalSales: { $sum: '$items.qty' },
+        totalSales: { $sum: { $subtract: ['$items.qty', { $ifNull: ['$items.refundedKeysCount', 0] }] } },
         totalRevenue: { $sum: { $subtract: ['$items.lineTotal', { $ifNull: ['$items.refundedAmount', 0] }] } },
         totalCommission: { $sum: '$items.commissionAmount' },
         sellerEarnings: { $sum: { $subtract: ['$items.sellerEarning', { $ifNull: ['$items.refundedSellerAmount', 0] }] } },
@@ -416,7 +430,7 @@ const getSellerMonthlyAnalytics = asyncHandler(async (req, res) => {
     {
       $group: {
         _id: '$items.productId',
-        salesCount: { $sum: '$items.qty' },
+        salesCount: { $sum: { $subtract: ['$items.qty', { $ifNull: ['$items.refundedKeysCount', 0] }] } },
         revenue: { $sum: { $subtract: ['$items.lineTotal', { $ifNull: ['$items.refundedAmount', 0] }] } },
       },
     },
@@ -502,7 +516,7 @@ const getSellerMonthlyAnalytics = asyncHandler(async (req, res) => {
     {
       $group: {
         _id: null,
-        totalSales: { $sum: '$items.qty' },
+        totalSales: { $sum: { $subtract: ['$items.qty', { $ifNull: ['$items.refundedKeysCount', 0] }] } },
         totalRevenue: { $sum: { $subtract: ['$items.lineTotal', { $ifNull: ['$items.refundedAmount', 0] }] } },
         totalEarnings: { $sum: { $subtract: ['$items.sellerEarning', { $ifNull: ['$items.refundedSellerAmount', 0] }] } },
         orderCount: { $addToSet: '$_id' },
@@ -581,9 +595,15 @@ const getAdminMonthlyAnalytics = asyncHandler(async (req, res) => {
       },
     },
     {
+      $project: {
+        totalAmount: 1,
+        refundedTotal: { $sum: '$items.refundedAmount' },
+      },
+    },
+    {
       $group: {
         _id: null,
-        totalRevenue: { $sum: '$totalAmount' },
+        totalRevenue: { $sum: { $subtract: ['$totalAmount', { $ifNull: ['$refundedTotal', 0] }] } },
         totalOrders: { $sum: 1 },
       },
     },
@@ -602,7 +622,14 @@ const getAdminMonthlyAnalytics = asyncHandler(async (req, res) => {
     {
       $group: {
         _id: null,
-        totalCommission: { $sum: '$items.commissionAmount' },
+        totalCommission: {
+          $sum: {
+            $subtract: [
+              '$items.commissionAmount',
+              { $subtract: [{ $ifNull: ['$items.refundedAmount', 0] }, { $ifNull: ['$items.refundedSellerAmount', 0] }] },
+            ],
+          },
+        },
       },
     },
   ]);
@@ -625,12 +652,19 @@ const getAdminMonthlyAnalytics = asyncHandler(async (req, res) => {
       },
     },
     {
+      $project: {
+        createdAt: 1,
+        totalAmount: 1,
+        refundedTotal: { $sum: '$items.refundedAmount' },
+      },
+    },
+    {
       $group: {
         _id: {
           $dateToString: { format: '%Y-%m-%d', date: '$createdAt' },
         },
         count: { $sum: 1 },
-        revenue: { $sum: '$totalAmount' },
+        revenue: { $sum: { $subtract: ['$totalAmount', { $ifNull: ['$refundedTotal', 0] }] } },
       },
     },
     {
@@ -690,12 +724,13 @@ const createCustomReport = asyncHandler(async (req, res) => {
     case "sales":
       reportData = await Order.aggregate([
         { $match: { ...match, paymentStatus: "paid" } },
+        { $project: { totalAmount: 1, refundedTotal: { $sum: "$items.refundedAmount" } } },
         {
           $group: {
             _id: null,
             totalOrders: { $sum: 1 },
-            totalRevenue: { $sum: "$totalAmount" },
-            averageOrderValue: { $avg: "$totalAmount" },
+            totalRevenue: { $sum: { $subtract: ["$totalAmount", { $ifNull: ["$refundedTotal", 0] }] } },
+            averageOrderValue: { $avg: { $subtract: ["$totalAmount", { $ifNull: ["$refundedTotal", 0] }] } },
           },
         },
       ]);
@@ -825,7 +860,8 @@ const getRealTimeCounters = asyncHandler(async (req, res) => {
     Product.countDocuments({ status: "active" }),
     Order.aggregate([
       { $match: { paymentStatus: "paid" } },
-      { $group: { _id: null, total: { $sum: "$totalAmount" } } },
+      { $project: { totalAmount: 1, refundedTotal: { $sum: "$items.refundedAmount" } } },
+      { $group: { _id: null, total: { $sum: { $subtract: ["$totalAmount", { $ifNull: ["$refundedTotal", 0] }] } } } },
     ]),
   ]);
 

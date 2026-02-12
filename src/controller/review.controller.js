@@ -7,6 +7,7 @@ import { ReviewPhoto } from "../models/reviewPhoto.model.js";
 import { Product } from "../models/product.model.js";
 import { Seller } from "../models/seller.model.js";
 import { Order } from "../models/order.model.js";
+import { ReturnRefund } from "../models/returnrefund.model.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { ApiError } from "../utils/ApiError.js";
 import { updateValidateMongoIds } from "../utils/Idvalidation.js";
@@ -14,13 +15,17 @@ import { calculateAverageRating } from "../services/review.service.js";
 import { fileUploader } from "../utils/cloudinary.js";
 
 
-// Purpose: Creates a review for a product after verifying purchase in the specified order
+// Purpose: Creates a review for a product after verifying purchase in the specified order.
+// Marketplace rules: only completed/partially-refunded orders; one review per product per order; no review if order in dispute.
 const createReview = asyncHandler(async (req, res) => {
   const { rating, comment, productId, orderId } = req.body;
-  const userId = req.user._id;
+  const userId = req.user._id; // Guest users cannot reach this (verifyJWT required)
 
-  if (!rating) {
+  if (!rating && rating !== 0) {
     throw new ApiError(400, "Rating is required");
+  }
+  if (rating < 1 || rating > 5) {
+    throw new ApiError(400, "Rating must be between 1 and 5. Zero-star ratings are not allowed.");
   }
 
   if (!productId) {
@@ -43,15 +48,25 @@ const createReview = asyncHandler(async (req, res) => {
     throw error;
   }
 
+  // Only completed or partially refunded orders: buyer can still leave one review per product per order (partial refund does not remove review)
   const order = await Order.findOne({
     _id: orderId,
     userId,
     paymentStatus: 'paid',
-    orderStatus: 'completed',
+    orderStatus: { $in: ['completed', 'PARTIALLY_REFUNDED', 'partially_completed'] },
   });
 
   if (!order) {
-    throw new ApiError(404, "Order not found or not completed. Please ensure the order exists and has been completed.");
+    throw new ApiError(404, "Order not found or not completed. Only buyers with a completed order can leave a review.");
+  }
+
+  // Block review if order has an open refund request (order in dispute)
+  const openRefund = await ReturnRefund.findOne({
+    orderId,
+    status: { $in: ['PENDING', 'SELLER_REVIEW', 'SELLER_APPROVED', 'ADMIN_REVIEW', 'ADMIN_APPROVED', 'pending', 'approved'] },
+  });
+  if (openRefund) {
+    throw new ApiError(400, "You cannot submit a review while this order has an open refund request. Please wait until the refund is resolved.");
   }
 
   const product = await Product.findById(productId);
@@ -59,30 +74,31 @@ const createReview = asyncHandler(async (req, res) => {
     throw new ApiError(404, `Product not found. The product with ID ${productId} does not exist.`);
   }
 
-  const orderItem = order.items.find(item => item.productId.toString() === productId);
+  const orderItem = order.items.find(item => (item.productId?.toString?.() || item.productId?._id?.toString?.()) === productId.toString());
   if (!orderItem) {
     throw new ApiError(400, "This product was not purchased in this order. Please ensure you are reviewing a product from your completed orders.");
   }
 
-  if (rating < 1 || rating > 5) {
-    throw new ApiError(400, "Rating must be between 1 and 5");
-  }
-  if (!comment) {
-    throw new ApiError(400, "Comment is required");
+  const trimmedComment = typeof comment === "string" ? comment.trim() : "";
+  if (!trimmedComment) {
+    throw new ApiError(400, "Comment is required and cannot be empty.");
   }
 
+  // Duplicate protection: one review per product per order (unique index also prevents race duplicates)
   const existingReview = await Review.findOne({ productId, userId, orderId });
-
   if (existingReview) {
-    throw new ApiError(400, "You have already reviewed this product for this order");
+    throw new ApiError(400, "You have already submitted a review for this product in this order. Only one review per product per order is allowed.");
   }
+
+  const sellerId = orderItem.sellerId?._id || orderItem.sellerId || product.sellerId;
 
   const review = await Review.create({
     productId,
     userId,
     orderId,
+    sellerId: sellerId || undefined,
     rating,
-    comment,
+    comment: trimmedComment,
     isVerifiedPurchase: true,
   });
 
@@ -97,7 +113,7 @@ const createReview = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, review, "Review created successfully"));
 });
 
-// Purpose: Updates an existing review by the review owner
+// Purpose: Updates an existing review by the review owner. Editing allowed only before any refund is processed for the order.
 const updateReview = asyncHandler(async (req, res) => {
   const { rating, comment } = req.body;
   const { id } = req.params;
@@ -109,19 +125,32 @@ const updateReview = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Rating must be between 1 and 5");
   }
 
-  if (!comment || comment.trim() === "") {
-    throw new ApiError(400, "Comment is required");
+  const trimmedComment = typeof comment === "string" ? comment.trim() : "";
+  if (!trimmedComment) {
+    throw new ApiError(400, "Comment is required and cannot be empty.");
   }
 
-  const review = await Review.findOneAndUpdate(
-    { _id: id, userId },
-    { rating, comment },
-    { new: true }
-  );
-
+  const review = await Review.findOne({ _id: id, userId });
   if (!review) {
     throw new ApiError(404, "Review not found");
   }
+
+  // Block edit after any refund: marketplace rule — editing allowed only before any refund is processed
+  const order = await Order.findById(review.orderId).select("orderStatus paymentStatus items.refunded items.refundedKeysCount").lean();
+  if (!order) {
+    throw new ApiError(404, "Order not found");
+  }
+  if (order.orderStatus === "REFUNDED" || order.paymentStatus === "refunded") {
+    throw new ApiError(400, "You cannot edit a review after the order has been fully refunded.");
+  }
+  const hasAnyRefund = order.items?.some((item) => item.refunded === true || (item.refundedKeysCount || 0) > 0);
+  if (hasAnyRefund) {
+    throw new ApiError(400, "You cannot edit a review after a refund has been processed for this order.");
+  }
+
+  review.rating = rating;
+  review.comment = trimmedComment;
+  await review.save();
 
   await calculateAverageRating(review.productId);
 
@@ -129,6 +158,7 @@ const updateReview = asyncHandler(async (req, res) => {
     .status(200)
     .json(new ApiResponse(200, review, "Review updated successfully"));
 });
+
 
 // Purpose: Deletes a review by the review owner and recalculates product rating
 const deleteReview = asyncHandler(async (req, res) => {
@@ -160,6 +190,7 @@ const getReviews = asyncHandler(async (req, res) => {
 
   const matchStage = {
     isHidden: false,
+    isInvalidated: { $ne: true }, // Exclude reviews from fully refunded orders (marketplace rule)
     $or: [
       { moderationStatus: 'approved' },
       { moderationStatus: { $exists: false } }, // For reviews created before moderation was added
