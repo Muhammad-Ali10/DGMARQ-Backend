@@ -8,6 +8,7 @@ import passport from "./config/passport.config.js";
 import { errorHandler } from "./middlerwares/error.middlerware.js";
 import { enforceHTTPS, securityHeaders } from "./middlerwares/https.middlerware.js";
 import { apiLimiter } from "./middlerwares/rateLimit.middlerware.js";
+import { coreStateGate } from "./middlerwares/coreStateGate.middlerware.js";
 
 const app = express();
 
@@ -179,7 +180,7 @@ app.use("/api/v1/order", orderRouter);
 app.use("/api/v1/payout", payoutRouter);
 app.use("/api/v1/notification", notificationRouter);
 app.use("/api/v1/chat", chatRouter);
-app.use("/api/v1/admin", adminRouter);
+app.use("/api/v1/admin", coreStateGate, adminRouter);
 app.use("/api/v1/coupon", couponRouter);
 app.use("/api/v1/return-refund", returnrefundRouter);
 app.use("/api/v1/analytics", analyticsRouter);

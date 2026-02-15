@@ -4,6 +4,7 @@ import ConnectDB from "./db/index.js";
 import { app } from "./app.js";
 import { initializeSocketIO } from "./socket/socket.io.js";
 import { scheduleDailyPayouts } from "./jobs/payout.job.js";
+import { scheduleRuntimeRefresh, refreshRuntime } from "./jobs/runtimeRefresh.job.js";
 import { logger } from "./utils/logger.js";
 import http from 'http';
 
@@ -26,6 +27,8 @@ import http from 'http';
         
         if (process.env.REDIS_URL) {
           scheduleDailyPayouts();
+          scheduleRuntimeRefresh();
+          await refreshRuntime();
           const { emailWorker } = await import('./jobs/email.job.js');
           if (emailWorker) {
             logger.success('Email worker initialized');
