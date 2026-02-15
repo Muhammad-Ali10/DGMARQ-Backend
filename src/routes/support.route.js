@@ -12,7 +12,6 @@ import {
 import { verifyJWT, authorizeRoles, optionalJWT } from "../middlerwares/authmiddlerware.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
-// Purpose: Support chat routes for user and admin chat management
 
 const router = express.Router();
 

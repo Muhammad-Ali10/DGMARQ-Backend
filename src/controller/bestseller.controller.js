@@ -9,7 +9,6 @@ import {
 } from "../services/bestseller.service.js";
 import { BestSeller } from "../models/bestseller.model.js";
 
-// Purpose: Retrieves bestsellers for home page display or paginated list
 const getBestsellers = asyncHandler(async (req, res) => {
   const { page, limit = 12, forHome = "false" } = req.query;
 
@@ -43,7 +42,6 @@ const getBestsellers = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves a specific bestseller entry by product ID
 const getBestsellerByProduct = asyncHandler(async (req, res) => {
   const { productId } = req.params;
 
@@ -77,7 +75,6 @@ const getBestsellerByProduct = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Manually triggers automatic bestseller generation for admin use
 const triggerBestSellerGeneration = asyncHandler(async (req, res) => {
   if (!req.user?.roles?.includes("admin")) {
     throw new ApiError(403, "Only admins can trigger best seller generation");

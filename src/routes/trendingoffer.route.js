@@ -12,7 +12,6 @@ import {
 } from "../controller/trendingoffer.controller.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
-// Purpose: Trending offer routes for public viewing and admin CRUD operations
 
 const router = express.Router();
 

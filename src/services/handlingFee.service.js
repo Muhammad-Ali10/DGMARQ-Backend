@@ -10,10 +10,8 @@ const DEFAULT_CONFIG = {
   fixedAmount: 0,
 };
 
-// Purpose: Rounds a monetary value to 2 decimal places
 const roundMoney = (value) => Math.round(value * 100) / 100;
 
-// Purpose: Retrieves the buyer handling fee configuration from platform settings
 export const getHandlingFeeConfig = async () => {
   try {
     const setting = await PlatformSettings.findOne({ key: SETTINGS_KEY });
@@ -33,7 +31,6 @@ export const getHandlingFeeConfig = async () => {
   }
 };
 
-// Purpose: Validates and normalizes handling fee configuration from request body
 export const validateHandlingFeeConfig = (body) => {
   const enabled = Boolean(body.enabled);
   if (!enabled) {
@@ -54,7 +51,6 @@ export const validateHandlingFeeConfig = (body) => {
   return { enabled: true, feeType: 'fixed', percentageValue: 0, fixedAmount };
 };
 
-// Purpose: Calculates the buyer handling fee and grand total for an order
 export const calculateBuyerHandlingFee = async (amountAfterDiscounts) => {
   const amount = roundMoney(Number(amountAfterDiscounts));
   if (amount < 0) {
@@ -75,7 +71,6 @@ export const calculateBuyerHandlingFee = async (amountAfterDiscounts) => {
   return { buyerHandlingFee: fee, grandTotal, config };
 };
 
-// Purpose: Asserts that the handling fee configuration is valid or throws an error
 export const assertValidHandlingFeeConfig = async () => {
   const config = await getHandlingFeeConfig();
   if (!config.enabled) return;

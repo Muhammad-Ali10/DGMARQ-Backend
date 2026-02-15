@@ -5,7 +5,6 @@ import { Review } from "../models/review.model.js";
 import { Seller } from "../models/seller.model.js";
 import { logger } from "../utils/logger.js";
 
-// Purpose: Calculates seller performance score based on reviews using weighted rating and volume
 const calculateSellerScore = (averageRating, reviewCount, maxReviewCount) => {
   const normalizedReviewCount = maxReviewCount > 0 
     ? Math.min(reviewCount / maxReviewCount, 1) 
@@ -14,7 +13,6 @@ const calculateSellerScore = (averageRating, reviewCount, maxReviewCount) => {
   return (averageRating * 0.7) + (normalizedReviewCount * 0.3);
 };
 
-// Purpose: Auto-generates best sellers based on seller review performance selecting top 6 sellers
 export const generateBestSellers = async () => {
   try {
     const sellerReviewStats = await Review.aggregate([
@@ -145,7 +143,6 @@ export const generateBestSellers = async () => {
   }
 };
 
-// Purpose: Retrieves best sellers for home page display limited to 6 products
 export const getHomePageBestSellers = async () => {
   return await BestSeller.find({})
     .populate({
@@ -173,7 +170,6 @@ export const getHomePageBestSellers = async () => {
     .lean();
 };
 
-// Purpose: Retrieves paginated best sellers for the best sellers page
 export const getPaginatedBestSellers = async (page = 1, limit = 12) => {
   const skip = (page - 1) * limit;
 

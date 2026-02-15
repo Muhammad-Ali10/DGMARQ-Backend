@@ -11,7 +11,6 @@ import {
 } from "../controller/flashdeal.controller.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
-// Purpose: Flash deal routes for public access and admin management
 
 const router = express.Router();
 

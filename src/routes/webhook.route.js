@@ -1,7 +1,6 @@
 import express from "express";
 import { handlePayPalWebhook } from "../controller/webhook.controller.js";
 
-// Purpose: Webhook routes for PayPal payment notifications
 
 const router = express.Router();
 

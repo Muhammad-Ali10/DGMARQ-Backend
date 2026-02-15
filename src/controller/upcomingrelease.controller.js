@@ -8,7 +8,6 @@ import { Product } from "../models/product.model.js";
 import { fileUploader } from "../utils/cloudinary.js";
 import { fileDelete } from "../utils/deletecloudinary.js";
 
-// Purpose: Retrieves upcoming releases for public display
 const getUpcomingReleases = asyncHandler(async (req, res) => {
   const config = await UpcomingRelease.getOrCreate();
 
@@ -50,7 +49,6 @@ const getUpcomingReleases = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves upcoming releases configuration for admin
 const getUpcomingReleasesConfig = asyncHandler(async (req, res) => {
   const config = await UpcomingRelease.getOrCreate();
 
@@ -82,7 +80,6 @@ const getUpcomingReleasesConfig = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Updates slot product assignment for admin
 const updateSlot = asyncHandler(async (req, res) => {
   const { slotNumber } = req.params;
   const { productId } = req.body;
@@ -138,7 +135,6 @@ const updateSlot = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Updates slot background image for admin
 const updateSlotImage = asyncHandler(async (req, res) => {
   const { slotNumber } = req.params;
   const slotNum = parseInt(slotNumber);

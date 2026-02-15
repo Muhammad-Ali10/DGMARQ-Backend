@@ -6,7 +6,6 @@ import {
 import { verifyJWT } from "../middlerwares/authmiddlerware.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
-// Purpose: License key routes for authenticated users to view and reveal keys
 
 const router = express.Router();
 

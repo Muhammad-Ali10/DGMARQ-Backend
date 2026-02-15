@@ -2,7 +2,6 @@ import { Router } from "express";
 import { authorizeRoles, verifyJWT, optionalJWT } from "../middlerwares/authmiddlerware.js";
 import { createType, updateType, getAllTypes, deleteType, toggleTypeStatus   } from "../controller/type.controller.js";
 
-// Purpose: Product type routes for creating, updating, deleting, and listing product types
 
 const router = Router();
 

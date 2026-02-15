@@ -10,7 +10,6 @@ import {
   getSellerOrders,
 } from "../controller/order.controller.js";
 
-// Purpose: Order routes for customers, sellers, and admins to manage orders
 
 const router = Router();
 
@@ -24,7 +23,6 @@ router
   .route("/:orderId")
   .get(verifyJWT, authorizeRoles("customer", "admin", "seller"), getOrderById);
 
-// License keys: optionalJWT allows guest access with ?guestEmail= for guest orders
 router
   .route("/:orderId/keys")
   .get(optionalJWT, getOrderKeys);

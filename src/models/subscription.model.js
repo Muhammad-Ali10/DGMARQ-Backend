@@ -18,5 +18,4 @@ const subscriptionSchema = new Schema(
   { timestamps: true },
 )
 
-// Purpose: Tracks user subscription plans and billing information
 export const Subscription = mongoose.model("Subscription", subscriptionSchema)

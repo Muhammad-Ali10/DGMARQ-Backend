@@ -14,7 +14,6 @@ import { getWalletBalance, debitWallet } from "../services/wallet.service.js";
 import { Transaction } from "../models/transaction.model.js";
 import { calculateBuyerHandlingFee, assertValidHandlingFeeConfig } from "../services/handlingFee.service.js";
 
-// Purpose: Creates a checkout session from cart with stock validation and discount calculation
 const createCheckoutSession = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { couponCode, preferredPaymentMethod } = req.body;
@@ -52,8 +51,6 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
   for (const item of cart.items) {
     const product = item.productId;
     
-    // Use discounted price from cart (item.unitPrice should already be discounted)
-    // Fallback to originalPrice or product.price if unitPrice is missing (backward compatibility)
     const finalUnitPrice = item.unitPrice || item.discountedPrice || product.price;
     const originalPrice = item.originalPrice || product.price;
     const discountedPrice = item.discountedPrice || finalUnitPrice;
@@ -221,7 +218,6 @@ const createCheckoutSession = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Creates a guest checkout session (no login). Items from body, guestEmail required.
 const createGuestCheckoutSession = asyncHandler(async (req, res) => {
   const { items: requestItems, guestEmail, couponCode } = req.body;
 
@@ -348,7 +344,6 @@ const createGuestCheckoutSession = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves checkout session status by checkout ID (authenticated or guest by id)
 const getCheckoutStatus = asyncHandler(async (req, res) => {
   const { checkoutId } = req.params;
   const isAuthenticated = !!req.user;
@@ -384,7 +379,6 @@ const getCheckoutStatus = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Cancels a pending checkout session (authenticated or guest)
 const cancelCheckout = asyncHandler(async (req, res) => {
   const { checkoutId } = req.params;
   const isAuthenticated = !!req.user;
@@ -415,7 +409,6 @@ const cancelCheckout = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Completes checkout after payment confirmation
 const completeCheckout = asyncHandler(async (req, res) => {
   const { checkoutId, paypalOrderId } = req.body;
 
@@ -441,7 +434,6 @@ const completeCheckout = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Gets handling fee estimate for a given amount for checkout UI display
 const getHandlingFeeEstimate = asyncHandler(async (req, res) => {
   const amount = parseFloat(req.query.amount);
   if (Number.isNaN(amount) || amount < 0) {

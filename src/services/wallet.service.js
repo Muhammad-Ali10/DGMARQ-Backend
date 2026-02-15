@@ -3,7 +3,6 @@ import { Wallet } from "../models/wallet.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { logger } from "../utils/logger.js";
 
-// Purpose: Gets or creates a wallet for a user
 export const getOrCreateWallet = async (userId) => {
   let wallet = await Wallet.findOne({ userId });
   
@@ -19,7 +18,6 @@ export const getOrCreateWallet = async (userId) => {
   return wallet;
 };
 
-// Purpose: Gets wallet balance for a user with null safety
 export const getWalletBalance = async (userId) => {
   const wallet = await getOrCreateWallet(userId);
   
@@ -35,13 +33,11 @@ export const getWalletBalance = async (userId) => {
   return balanceNumber;
 };
 
-// Purpose: Credits amount to user wallet with transaction support
 export const creditWallet = async (userId, amount, description, metadata = {}, existingSession = null) => {
   if (amount <= 0) {
     throw new ApiError(400, "Credit amount must be greater than 0");
   }
 
-  // Use existing session if provided, otherwise create a new one
   const useExistingSession = existingSession !== null;
   const session = existingSession || await mongoose.startSession();
   
@@ -120,13 +116,11 @@ export const creditWallet = async (userId, amount, description, metadata = {}, e
   }
 };
 
-// Purpose: Debits amount from user wallet using atomic operations
 export const debitWallet = async (userId, amount, description, metadata = {}, existingSession = null) => {
   if (amount <= 0) {
     throw new ApiError(400, "Debit amount must be greater than 0");
   }
 
-  // Use existing session if provided, otherwise create a new one
   const useExistingSession = existingSession !== null;
   const session = existingSession || await mongoose.startSession();
   
@@ -138,7 +132,6 @@ export const debitWallet = async (userId, amount, description, metadata = {}, ex
     let wallet = await Wallet.findOne({ userId }).session(session);
     
     if (!wallet) {
-      // Create wallet with initial balance 0
       wallet = await Wallet.create([{
         userId,
         balance: 0,
@@ -232,7 +225,6 @@ export const debitWallet = async (userId, amount, description, metadata = {}, ex
   }
 };
 
-// Purpose: Gets wallet transactions with pagination for a user
 export const getWalletTransactions = async (userId, page = 1, limit = 20) => {
   const wallet = await Wallet.findOne({ userId });
   

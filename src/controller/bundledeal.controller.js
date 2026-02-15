@@ -6,7 +6,7 @@ import { BundleDeal } from "../models/bundledeal.model.js";
 import { Product } from "../models/product.model.js";
 import { fileUploader } from "../utils/cloudinary.js";
 
-// Creates a new bundle deal with two products, discount validation, and banner image upload
+/** Creates bundle deal: 2 products, discount validation, banner image. */
 const createBundleDeal = asyncHandler(async (req, res) => {
   const { title, products, discountType, discountValue, startDate, endDate } = req.body;
   const adminId = req.user._id;
@@ -47,8 +47,6 @@ const createBundleDeal = asyncHandler(async (req, res) => {
   if (!product1 || !product2) {
     throw new ApiError(404, "One or more products not found");
   }
-
-  // Check for approved products (status can be 'active' or 'approved' - both mean approved)
   if (!['active', 'approved'].includes(product1.status) || !['active', 'approved'].includes(product2.status)) {
     throw new ApiError(400, "Both products must be approved to create a bundle");
   }
@@ -124,7 +122,6 @@ const createBundleDeal = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves all bundle deals with pagination for admin
 const getAllBundleDeals = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10 } = req.query;
 
@@ -154,7 +151,6 @@ const getAllBundleDeals = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves active bundle deals for public home page display
 const getActiveBundleDeals = asyncHandler(async (req, res) => {
   const now = new Date();
 
@@ -171,7 +167,6 @@ const getActiveBundleDeals = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves a bundle deal by ID or slug
 const getBundleDealById = asyncHandler(async (req, res) => {
   const { identifier } = req.params;
 
@@ -195,7 +190,6 @@ const getBundleDealById = asyncHandler(async (req, res) => {
   );
 });
 
-// Updates a bundle deal with validation for products, discount, dates, and optional banner image
 const updateBundleDeal = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { title, products, discountType, discountValue, startDate, endDate } = req.body;
@@ -239,7 +233,6 @@ const updateBundleDeal = asyncHandler(async (req, res) => {
       throw new ApiError(404, "One or more products not found");
     }
 
-    // Check for approved products (status can be 'active' or 'approved' - both mean approved)
     if (!['active', 'approved'].includes(product1.status) || !['active', 'approved'].includes(product2.status)) {
       throw new ApiError(400, "Both products must be approved to create a bundle");
     }
@@ -331,7 +324,6 @@ const updateBundleDeal = asyncHandler(async (req, res) => {
   );
 });
 
-// Deletes a bundle deal by ID
 const deleteBundleDeal = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -351,7 +343,6 @@ const deleteBundleDeal = asyncHandler(async (req, res) => {
   );
 });
 
-// Toggles the active status of a bundle deal
 const toggleBundleDealStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
 

@@ -3,7 +3,6 @@ import { Product } from '../models/product.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import mongoose from 'mongoose';
 
-// Purpose: Retrieves active trending offers within current time period
 export const getActiveTrendingOffers = async () => {
   const now = new Date();
   return await TrendingOffer.find({
@@ -15,7 +14,6 @@ export const getActiveTrendingOffers = async () => {
     .sort({ createdAt: -1 });
 };
 
-// Purpose: Gets active trending offer for a specific product
 export const getTrendingOfferForProduct = async (productId) => {
   const now = new Date();
   return await TrendingOffer.findOne({
@@ -26,7 +24,6 @@ export const getTrendingOfferForProduct = async (productId) => {
   });
 };
 
-// Purpose: Calculates trending offer discount for a product
 export const calculateTrendingOfferDiscount = async (productId, originalPrice) => {
   const offer = await getTrendingOfferForProduct(productId);
   if (!offer) {
@@ -50,7 +47,6 @@ export const calculateTrendingOfferDiscount = async (productId, originalPrice) =
   };
 };
 
-// Purpose: Validates offer start and end dates for correctness
 export const validateOfferDates = (startTime, endTime) => {
   const start = new Date(startTime);
   const end = new Date(endTime);
@@ -67,7 +63,6 @@ export const validateOfferDates = (startTime, endTime) => {
   return { valid: true };
 };
 
-// Purpose: Checks for overlapping active offers on products within a time range
 export const checkOverlappingProductOffers = async (productIds, startTime, endTime, excludeId = null) => {
   const query = {
     products: { $in: productIds.map(id => new mongoose.Types.ObjectId(id)) },
@@ -88,7 +83,6 @@ export const checkOverlappingProductOffers = async (productIds, startTime, endTi
   return !!overlapping;
 };
 
-// Purpose: Updates offer status based on current time
 export const updateOfferStatus = async (offerId) => {
   const offer = await TrendingOffer.findById(offerId);
   if (!offer) {
@@ -109,7 +103,6 @@ export const updateOfferStatus = async (offerId) => {
   return offer;
 };
 
-// Purpose: Batch updates all offer statuses based on current time
 export const updateAllOfferStatuses = async () => {
   const now = new Date();
   

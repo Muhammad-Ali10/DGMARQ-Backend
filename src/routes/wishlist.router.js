@@ -2,7 +2,6 @@ import { Router } from "express";
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 import { addToWishlist, getWishlist, removeFromWishlist, clearWishlist} from "../controller/wishlist.controller.js";
 
-// Purpose: Wishlist routes for adding, viewing, removing, and clearing wishlist items
 
 const router = Router();
 

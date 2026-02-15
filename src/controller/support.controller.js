@@ -16,7 +16,6 @@ import {
 } from "../services/support.service.js";
 import { auditLog } from "../services/audit.service.js";
 
-// Purpose: Creates a support chat conversation for logged-in or anonymous users
 const createSupportChat = asyncHandler(async (req, res) => {
   const userId = req.user?._id || null;
   const { subject, initialMessage, guestEmail, guestName, guestSessionId } = req.body;
@@ -56,7 +55,6 @@ const createSupportChat = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves support chats for logged-in users, guests, or assigned admin chats
 const getMySupportChats = asyncHandler(async (req, res) => {
   const userId = req.user?._id || null;
   const isAdmin = req.user?.roles?.includes('admin') || false;
@@ -84,7 +82,6 @@ const getMySupportChats = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves support chat messages and marks them as read
 const getSupportChatMessages = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
   const userId = req.user?._id || null;
@@ -109,7 +106,6 @@ const getSupportChatMessages = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Sends a message in a support chat conversation
 const sendSupportMessageHandler = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
   const userId = req.user?._id || null;
@@ -149,7 +145,6 @@ const sendSupportMessageHandler = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Closes a support chat conversation with optional resolution notes
 const closeSupportChatHandler = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
   const userId = req.user._id;
@@ -177,7 +172,6 @@ const closeSupportChatHandler = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all support chats with filtering options for admin
 const getAllSupportChatsAdmin = asyncHandler(async (req, res) => {
   if (!req.user.roles?.includes('admin')) {
     throw new ApiError(403, "Only admins can view all support chats");
@@ -198,7 +192,6 @@ const getAllSupportChatsAdmin = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Assigns an admin to a support chat conversation
 const assignAdminToChatHandler = asyncHandler(async (req, res) => {
   if (!req.user.roles?.includes('admin')) {
     throw new ApiError(403, "Only admins can assign chats");
@@ -229,7 +222,6 @@ const assignAdminToChatHandler = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves support chat statistics for admin
 const getSupportStats = asyncHandler(async (req, res) => {
   if (!req.user.roles?.includes('admin')) {
     throw new ApiError(403, "Only admins can view support statistics");

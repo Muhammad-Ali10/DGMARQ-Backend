@@ -29,5 +29,4 @@ const cartSchema = new Schema(
   { timestamps: true }
 );
 
-// Purpose: Stores shopping cart items and pricing details for users
 export const Cart = mongoose.model("Cart", cartSchema);

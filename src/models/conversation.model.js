@@ -23,5 +23,4 @@ conversationSchema.index({ buyerId: 1, status: 1, lastMessageAt: -1 });
 conversationSchema.index({ sellerId: 1, status: 1, lastMessageAt: -1 });
 conversationSchema.index({ orderId: 1 });
 
-// Purpose: Manages messaging conversations between buyers and sellers
 export const Conversation = mongoose.model("Conversation", conversationSchema);

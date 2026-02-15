@@ -3,7 +3,6 @@ import crypto from 'crypto';
 const algorithm = 'aes-256-gcm';
 const secretKey = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
 
-// Purpose: Derives encryption key from environment variable
 const getKey = () => {
   if (secretKey.length === 64) {
     return Buffer.from(secretKey, 'hex');
@@ -11,7 +10,6 @@ const getKey = () => {
   return crypto.scryptSync(secretKey, 'salt', 32);
 };
 
-// Purpose: Encrypts text using AES-256-GCM algorithm
 export const encryptKey = (text) => {
   if (!text) {
     throw new Error('Key data is required for encryption');
@@ -28,7 +26,6 @@ export const encryptKey = (text) => {
   return `${iv.toString('hex')}:${encrypted}:${authTag.toString('hex')}`;
 };
 
-// Purpose: Decrypts data encrypted with encryptKey
 export const decryptKey = (encryptedData) => {
   if (!encryptedData) {
     throw new Error('Encrypted data is required');
@@ -76,7 +73,6 @@ export const decryptKey = (encryptedData) => {
   }
 };
 
-// Purpose: Creates SHA256 hash for duplicate detection
 export const hashKey = (keyData) => {
   return crypto.createHash('sha256').update(keyData).digest('hex');
 };

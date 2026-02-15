@@ -36,15 +36,10 @@ if (isRedisAvailable) {
       }
     );
 
-    emailWorker.on('completed', (job) => {
-      logger.info(`Email job ${job.id} completed: ${job.data.type}`);
-    });
-
     emailWorker.on('failed', (job, err) => {
       logger.error(`Email job ${job.id} failed:`, err);
     });
     
-    logger.info('Email queue and worker initialized with Redis');
   } catch (error) {
     logger.error('Failed to initialize email queue with Redis:', error);
     logger.warn('Emails will be sent directly (synchronously)');
@@ -53,7 +48,7 @@ if (isRedisAvailable) {
   logger.warn('Redis not configured - emails will be sent directly (synchronously)');
 }
 
-// Purpose: Processes email jobs by type and sends appropriate emails
+/** Dispatches email by type: license_key, license_key_guest, order_confirmation, payout_notification. */
 const processEmailJob = async (type, data) => {
   switch (type) {
     case 'license_key':
@@ -143,10 +138,9 @@ const processEmailJob = async (type, data) => {
   }
 };
 
-// Purpose: Queues email job or sends directly if Redis unavailable
+/** Queues email job; falls back to direct send if Redis unavailable. */
 export const queueEmail = async (type, data) => {
   if (!isRedisAvailable || !emailQueue) {
-    logger.info(`Sending email directly (Redis not available): ${type}`);
     try {
       await processEmailJob(type, data);
       return { success: true, sent: true, method: 'direct' };
@@ -171,7 +165,6 @@ export const queueEmail = async (type, data) => {
         age: 7 * 24 * 3600,
       },
     });
-    logger.debug(`Email queued: ${type}`, { jobId: job.id });
     return job;
   } catch (error) {
     logger.error(`Failed to queue email (${type}), trying direct send:`, error);

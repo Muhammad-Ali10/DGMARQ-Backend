@@ -9,9 +9,10 @@ import { Subscription } from "../models/subscription.model.js";
 import { auditLog } from "../services/audit.service.js";
 import { renewSubscription, handleSubscriptionPaymentFailure } from "../services/subscription.service.js";
 import { verifyPayPalWebhook } from "../services/payment.service.js";
+import { blockPayoutsForOrder } from "../services/payout.service.js";
 import paypal from "@paypal/checkout-server-sdk";
 
-// Purpose: Handles PayPal webhook events for payments and subscriptions
+/** Handles PayPal webhooks: verifies signature, dispatches by event type. Returns 200 for audit. */
 const handlePayPalWebhook = asyncHandler(async (req, res) => {
   const isValid = await verifyPayPalWebhook(req);
   if (!isValid) {
@@ -55,8 +56,12 @@ const handlePayPalWebhook = asyncHandler(async (req, res) => {
     'PAYMENT.CAPTURE.COMPLETED',
     'PAYMENT.CAPTURE.DENIED',
     'PAYMENT.CAPTURE.REFUNDED',
+    'CHECKOUT.ORDER.APPROVED',
+    'CUSTOMER.DISPUTE.CREATED',
     'PAYOUTS.PAYOUT.COMPLETED',
     'PAYOUTS.PAYOUT.FAILED',
+    'PAYOUTS-ITEM.SUCCEEDED',
+    'PAYOUTS-ITEM.FAILED',
     'BILLING.SUBSCRIPTION.CREATED',
     'BILLING.SUBSCRIPTION.ACTIVATED',
     'BILLING.SUBSCRIPTION.CANCELLED',
@@ -67,7 +72,6 @@ const handlePayPalWebhook = asyncHandler(async (req, res) => {
 
   if (!supportedEventTypes.includes(eventType)) {
     logger.warn(`[WEBHOOK] Unsupported event type ignored: ${eventType} (resource.id: ${resourceId})`);
-    // Return 200 to acknowledge receipt (PayPal expects this)
     return res.status(200).json({
       ok: true,
       message: `Webhook received but event type '${eventType}' is not supported`,
@@ -93,6 +97,16 @@ const handlePayPalWebhook = asyncHandler(async (req, res) => {
         await handlePaymentRefunded(resource);
         break;
 
+      case "CHECKOUT.ORDER.APPROVED":
+        logger.info(`[WEBHOOK] Processing CHECKOUT.ORDER.APPROVED for resource.id: ${resourceId}`);
+        await handleCheckoutOrderApproved(resource);
+        break;
+
+      case "CUSTOMER.DISPUTE.CREATED":
+        logger.info(`[WEBHOOK] Processing CUSTOMER.DISPUTE.CREATED for resource.id: ${resourceId}`);
+        await handleCustomerDisputeCreated(resource);
+        break;
+
       case "PAYOUTS.PAYOUT.COMPLETED":
         logger.info(`[WEBHOOK] Processing PAYOUTS.PAYOUT.COMPLETED for resource.id: ${resourceId}`);
         await handlePayoutCompleted(resource);
@@ -101,6 +115,16 @@ const handlePayPalWebhook = asyncHandler(async (req, res) => {
       case "PAYOUTS.PAYOUT.FAILED":
         logger.info(`[WEBHOOK] Processing PAYOUTS.PAYOUT.FAILED for resource.id: ${resourceId}`);
         await handlePayoutFailed(resource);
+        break;
+
+      case "PAYOUTS-ITEM.SUCCEEDED":
+        logger.info(`[WEBHOOK] Processing PAYOUTS-ITEM.SUCCEEDED for resource.id: ${resourceId}`);
+        await handlePayoutItemSucceeded(resource);
+        break;
+
+      case "PAYOUTS-ITEM.FAILED":
+        logger.info(`[WEBHOOK] Processing PAYOUTS-ITEM.FAILED for resource.id: ${resourceId}`);
+        await handlePayoutItemFailed(resource);
         break;
 
       case "BILLING.SUBSCRIPTION.CREATED":
@@ -158,7 +182,6 @@ const handlePayPalWebhook = asyncHandler(async (req, res) => {
   }
 });
 
-// Purpose: Handles PayPal payment capture completed event for reconciliation
 const handlePaymentCaptureCompleted = async (resource) => {
   if (!resource || !resource.id) {
     logger.error('[WEBHOOK] Invalid PAYMENT.CAPTURE.COMPLETED resource - missing id');
@@ -169,14 +192,6 @@ const handlePaymentCaptureCompleted = async (resource) => {
   const paypalOrderId = resource.supplementary_data?.related_ids?.order_id;
   const capturedAmount = parseFloat(resource.amount?.value || 0);
   const capturedCurrency = resource.amount?.currency_code || 'USD';
-
-  logger.debug('[WEBHOOK] PAYMENT.CAPTURE.COMPLETED resource', {
-    captureId,
-    paypalOrderId: paypalOrderId || 'N/A',
-    amount: resource.amount?.value || 'N/A',
-    currency: capturedCurrency,
-    status: resource.status || 'N/A',
-  });
 
   const order = await Order.findOne({
     $or: [
@@ -267,7 +282,6 @@ const handlePaymentCaptureCompleted = async (resource) => {
   }
 };
 
-// Purpose: Handles PayPal payment capture denied event
 const handlePaymentCaptureDenied = async (resource) => {
   const captureId = resource.id;
 
@@ -299,7 +313,6 @@ const handlePaymentCaptureDenied = async (resource) => {
   });
 };
 
-// Purpose: Handles PayPal payment refunded event
 const handlePaymentRefunded = async (resource) => {
   const refundId = resource.id;
   const captureId = resource.capture_id;
@@ -313,6 +326,8 @@ const handlePaymentRefunded = async (resource) => {
 
   order.paymentStatus = "refunded";
   await order.save();
+
+  await blockPayoutsForOrder(order._id, "Order fully refunded (PayPal webhook) – payout cancelled");
 
   await Transaction.create({
     userId: order.userId,
@@ -332,7 +347,6 @@ const handlePaymentRefunded = async (resource) => {
   });
 };
 
-// Purpose: Handles PayPal payout completed event
 const handlePayoutCompleted = async (resource) => {
   const payoutBatchId = resource.payout_batch_id;
 
@@ -365,7 +379,6 @@ const handlePayoutCompleted = async (resource) => {
   });
 };
 
-// Purpose: Handles PayPal payout failed event
 const handlePayoutFailed = async (resource) => {
   const payoutBatchId = resource.payout_batch_id;
 
@@ -398,13 +411,173 @@ const handlePayoutFailed = async (resource) => {
   });
 };
 
-// Purpose: Handles PayPal subscription created event
+const handlePayoutItemSucceeded = async (resource) => {
+  const payoutItemId =
+    resource.payout_item_id ||
+    resource.payout_item?.payout_item_id ||
+    resource.payout_item?.item_id;
+  const payoutBatchId = resource.payout_batch_id;
+
+  if (!payoutItemId && !payoutBatchId) {
+    logger.warn('[WEBHOOK] PAYOUTS-ITEM.SUCCEEDED resource missing payout_item_id and payout_batch_id');
+    return;
+  }
+
+  let payout = null;
+  if (payoutItemId) {
+    payout = await Payout.findOne({ paypalItemId: payoutItemId });
+  }
+  if (!payout && payoutBatchId) {
+    payout = await Payout.findOne({ paypalBatchId: payoutBatchId });
+  }
+
+  if (!payout) {
+    logger.warn('[WEBHOOK] Payout not found for PAYOUTS-ITEM.SUCCEEDED', {
+      payoutItemId,
+      payoutBatchId,
+    });
+    return;
+  }
+
+  if (payout.status === 'released') {
+    logger.info('[WEBHOOK] Payout already marked as released (idempotent item webhook)', {
+      payoutId: payout._id,
+      payoutItemId,
+      payoutBatchId,
+    });
+    return;
+  }
+
+  payout.status = 'released';
+  payout.paypalBatchId = payoutBatchId || payout.paypalBatchId;
+  payout.paypalItemId = payoutItemId || payout.paypalItemId;
+  payout.paypalTransactionId = resource.transaction_id || payout.paypalTransactionId;
+  payout.processedAt = payout.processedAt || new Date();
+  await payout.save();
+
+  await Transaction.create({
+    sellerId: payout.sellerId,
+    payoutId: payout._id,
+    orderId: payout.orderId,
+    type: "payout",
+    amount: payout.netAmount,
+    currency: payout.currency,
+    status: "completed",
+    paymentMethod: "PayPal",
+    paypalTransactionId: resource.transaction_id,
+    description: `Payout item succeeded for order ${payout.orderId}`,
+  });
+
+  await auditLog(payout.sellerId, "PAYOUT_ITEM_SUCCEEDED", `Payout item succeeded for order ${payout.orderId}`, {
+    payoutId: payout._id,
+    payoutBatchId,
+    payoutItemId,
+  });
+};
+
+const handlePayoutItemFailed = async (resource) => {
+  const payoutItemId =
+    resource.payout_item_id ||
+    resource.payout_item?.payout_item_id ||
+    resource.payout_item?.item_id;
+  const payoutBatchId = resource.payout_batch_id;
+
+  if (!payoutItemId && !payoutBatchId) {
+    logger.warn('[WEBHOOK] PAYOUTS-ITEM.FAILED resource missing payout_item_id and payout_batch_id');
+    return;
+  }
+
+  let payout = null;
+  if (payoutItemId) {
+    payout = await Payout.findOne({ paypalItemId: payoutItemId });
+  }
+  if (!payout && payoutBatchId) {
+    payout = await Payout.findOne({ paypalBatchId: payoutBatchId });
+  }
+
+  if (!payout) {
+    logger.warn('[WEBHOOK] Payout not found for PAYOUTS-ITEM.FAILED', {
+      payoutItemId,
+      payoutBatchId,
+    });
+    return;
+  }
+
+  if (payout.status === 'failed') {
+    logger.info('[WEBHOOK] Payout already marked as failed (idempotent item webhook)', {
+      payoutId: payout._id,
+      payoutItemId,
+      payoutBatchId,
+    });
+    return;
+  }
+
+  payout.status = 'failed';
+  payout.paypalBatchId = payoutBatchId || payout.paypalBatchId;
+  payout.paypalItemId = payoutItemId || payout.paypalItemId;
+  payout.paypalTransactionId = resource.transaction_id || payout.paypalTransactionId;
+  payout.processedAt = payout.processedAt || new Date();
+  await payout.save();
+
+  await Transaction.create({
+    sellerId: payout.sellerId,
+    payoutId: payout._id,
+    orderId: payout.orderId,
+    type: "payout",
+    amount: payout.netAmount,
+    currency: payout.currency,
+    status: "failed",
+    paymentMethod: "PayPal",
+    paypalTransactionId: resource.transaction_id,
+    description: `Payout item failed for order ${payout.orderId}`,
+  });
+
+  await auditLog(payout.sellerId, "PAYOUT_ITEM_FAILED", `Payout item failed for order ${payout.orderId}`, {
+    payoutId: payout._id,
+    payoutBatchId,
+    payoutItemId,
+  });
+};
+
+const handleCheckoutOrderApproved = async (resource) => {
+  const paypalOrderId = resource.id;
+  if (!paypalOrderId) {
+    logger.warn('[WEBHOOK] CHECKOUT.ORDER.APPROVED missing order id');
+    return;
+  }
+
+  const order = await Order.findOne({ paypalOrderId });
+  if (!order) {
+    logger.info('[WEBHOOK] CHECKOUT.ORDER.APPROVED received for PayPal order with no matching internal order yet', {
+      paypalOrderId,
+    });
+    return;
+  }
+
+  logger.info('[WEBHOOK] CHECKOUT.ORDER.APPROVED matched internal order', {
+    paypalOrderId,
+    orderId: order._id,
+    paymentStatus: order.paymentStatus,
+    orderStatus: order.orderStatus,
+  });
+};
+
+const handleCustomerDisputeCreated = async (resource) => {
+  const disputeId = resource.dispute_id || resource.id;
+  const status = resource.status;
+
+  logger.warn('[WEBHOOK] CUSTOMER.DISPUTE.CREATED received', {
+    disputeId,
+    status,
+    reason: resource.reason,
+  });
+};
+
 const handleSubscriptionCreated = async (resource) => {
   const subscriptionId = resource.id;
   logger.info(`[WEBHOOK] Subscription created: ${subscriptionId}`);
 };
 
-// Purpose: Handles PayPal subscription activated event
 const handleSubscriptionActivated = async (resource) => {
   const subscriptionId = resource.id;
   
@@ -420,7 +593,6 @@ const handleSubscriptionActivated = async (resource) => {
   }
 };
 
-// Purpose: Handles PayPal subscription cancelled event
 const handleSubscriptionCancelled = async (resource) => {
   const subscriptionId = resource.id;
   
@@ -437,7 +609,6 @@ const handleSubscriptionCancelled = async (resource) => {
   }
 };
 
-// Purpose: Handles PayPal subscription expired event
 const handleSubscriptionExpired = async (resource) => {
   const subscriptionId = resource.id;
   
@@ -453,7 +624,6 @@ const handleSubscriptionExpired = async (resource) => {
   }
 };
 
-// Purpose: Handles PayPal subscription payment failed event
 const handleSubscriptionPaymentFailed = async (resource) => {
   const subscriptionId = resource.id;
   
@@ -468,7 +638,6 @@ const handleSubscriptionPaymentFailed = async (resource) => {
   }
 };
 
-// Purpose: Handles PayPal subscription renewed event
 const handleSubscriptionRenewed = async (resource) => {
   const subscriptionId = resource.id;
   

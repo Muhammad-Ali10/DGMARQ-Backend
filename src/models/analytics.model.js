@@ -13,5 +13,4 @@ const analyticsSchema = new Schema(
     { timestamps: true },
 )
 
-// Purpose: Tracks product and category analytics including sales, views, and wishlist counts
 export const Analytics = mongoose.model("Analytics", analyticsSchema)

@@ -8,7 +8,6 @@ import { Type } from "../models/type.model.js";
 
 
 
-// Purpose: Validates MongoDB ObjectIds for a list of items and cleans up files on error
 export const validateMongoIds = (items, files) => {
   for (const { id, name, optional } of items) {
     if ((!optional && !id) || (id && !mongoose.Types.ObjectId.isValid(id))) {
@@ -18,7 +17,6 @@ export const validateMongoIds = (items, files) => {
   }
 };
 
-// Purpose: Verifies that referenced models exist and cleans up files on error
 export const checkModelRefs = async (items, files) => {
   for (const { model, id, name, optional } of items) {
     if (!id && optional) continue;
@@ -31,7 +29,6 @@ export const checkModelRefs = async (items, files) => {
   }
 };
 
-// Purpose: Validates MongoDB ObjectIds for update operations
 export const updateValidateMongoIds = (items) => {
   for (const { id, name, optional } of items) {
     if ((!optional && !id) || (id && !mongoose.Types.ObjectId.isValid(id))) {
@@ -40,7 +37,6 @@ export const updateValidateMongoIds = (items) => {
   }
 };
 
-// Purpose: Verifies that referenced models exist for update operations
 export const updateCheckModelRefs = async (items) => {
   for (const { model, id, name, optional } of items) {
     if (!id && optional) continue;
@@ -52,7 +48,6 @@ export const updateCheckModelRefs = async (items) => {
   }
 };
 
-// Purpose: Checks for duplicate records excluding a specific document ID
 export const updateCheckDuplicateRecord = async (
   model,
   filters,
@@ -66,7 +61,6 @@ export const updateCheckDuplicateRecord = async (
   }
 };
 
-// Purpose: Checks for duplicate records and cleans up files on error
 export const checkDuplicateRecord = async (
   model,
   filters,
@@ -82,7 +76,6 @@ export const checkDuplicateRecord = async (
   }
 };
 
-// Purpose: Uploads multiple images to cloud storage and returns URLs and public IDs
 export const uploadImages = async (files) => {
   if (!files || !Object.keys(files).length)
     throw new ApiError(400, "Images are required");
@@ -103,7 +96,6 @@ export const uploadImages = async (files) => {
   return uploaded;
 };
 
-// Purpose: Prepares MongoDB query filters from request query parameters
 export const prepareQueryFilters = async (query, user = null) => {
   const match = {};
 
@@ -265,7 +257,6 @@ export const lookupStages = [
   },
 }));
 
-// Purpose: Fetches products using aggregation pipeline with filtering and pagination
 export const fetchProducts = async (query, user = null) => {
   const match = await prepareQueryFilters(query, user);
 

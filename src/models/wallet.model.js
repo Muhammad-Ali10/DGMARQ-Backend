@@ -60,5 +60,5 @@ walletSchema.index({ userId: 1 });
 walletSchema.index({ "transactions.orderId": 1 });
 walletSchema.index({ "transactions.refundId": 1 });
 
-// Purpose: Represents user wallet with balance and transaction history for payments and refunds
+/** User wallet: balance and transaction history for payments/refunds. */
 export const Wallet = mongoose.model("Wallet", walletSchema);

@@ -30,7 +30,6 @@ import {
   updateCheckDuplicateRecord
 } from "../services/product.service.js";
 
-// Purpose: Creates a new product with validation and optional auto-approval
 const createProduct = asyncHandler(async (req, res) => {
   const userId = req.user?._id || req.user;
   const files = req.files;
@@ -164,7 +163,6 @@ const createProduct = asyncHandler(async (req, res) => {
     .json(new ApiResponse(true, product, "Product created successfully"));
 });
 
-// Purpose: Updates product images by adding or removing them
 const updateProductImages = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const files = req.files;
@@ -208,7 +206,6 @@ const updateProductImages = asyncHandler(async (req, res) => {
     .json(new ApiResponse(true, product, "Images updated successfully"));
 });
 
-// Purpose: Deletes a product and its associated cloud images
 const deleteProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -229,7 +226,6 @@ const deleteProduct = asyncHandler(async (req, res) => {
     .json(new ApiResponse(true, "Product deleted successfully"));
 });
 
-// Purpose: Updates product details with ownership validation
 const updateProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user._id;
@@ -348,7 +344,6 @@ const updateProduct = asyncHandler(async (req, res) => {
     .json(new ApiResponse(true, product, "Product updated successfully"));
 });
 
-// Purpose: Retrieves paginated products with optional seller filtering
 const getProducts = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
   const userRoles = Array.isArray(req.user?.roles) ? req.user?.roles : (req.user?.role ? [req.user.role] : []);
@@ -380,7 +375,6 @@ const getProducts = asyncHandler(async (req, res) => {
   
 });
 
-// Purpose: Retrieves a product by ID or slug with full details and trending offers
 const getProductById = asyncHandler(async (req, res) => {
   const { identifier } = req.params;
 
@@ -459,11 +453,7 @@ const getProductById = asyncHandler(async (req, res) => {
       originalSellerId = productObject.sellerId;
     }
   }
-  
-  // Explicitly ensure sellerId is included if it was populated
-  // When sellerId is populated, it becomes an object with seller data
   if (product.sellerId && typeof product.sellerId === 'object' && product.sellerId._id) {
-    // Seller is populated, include all fields explicitly
     productObject.sellerId = {
       _id: product.sellerId._id,
       shopName: product.sellerId.shopName || null,
@@ -494,7 +484,6 @@ const getProductById = asyncHandler(async (req, res) => {
           rating: sellerDoc.rating || 0,
           status: sellerDoc.status || null,
         };
-        logger.debug('Seller fetched successfully', { shopName: productObject.sellerId.shopName });
       } else {
         logger.warn('Seller document not found for sellerId', { sellerId: originalSellerId });
         productObject.sellerId = originalSellerId;
@@ -538,7 +527,6 @@ const getProductById = asyncHandler(async (req, res) => {
     .json(new ApiResponse(true, productResponse, "Product retrieved successfully"));
 });
 
-// Purpose: Uploads license keys or account credentials for a product
 const uploadKeys = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user._id;
@@ -606,7 +594,6 @@ const uploadKeys = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves paginated license keys for a seller's product
 const getProductKeys = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user._id;
@@ -654,7 +641,6 @@ const getProductKeys = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Synchronizes product stock count with available keys
 const syncStock = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user._id;
@@ -701,7 +687,6 @@ const syncStock = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Duplicates an existing product with a new slug and pending status
 const duplicateProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user._id;

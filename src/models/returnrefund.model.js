@@ -1,14 +1,12 @@
 import mongoose, { Schema } from "mongoose";
 
-// Include new flow statuses + legacy for backward compatibility
 const ALL_REFUND_STATUSES = [
   "PENDING", "SELLER_REVIEW", "SELLER_APPROVED", "SELLER_REJECTED",
   "ADMIN_REVIEW", "ADMIN_APPROVED", "ADMIN_REJECTED", "COMPLETED",
   "ON_HOLD_INSUFFICIENT_FUNDS", "WAITING_FOR_MANUAL_REFUND",
-  "pending", "approved", "rejected", "completed", // legacy
+  "pending", "approved", "rejected", "completed",
 ];
 
-// Embedded audit entry for refund workflow. Append-only: only push new entries; never update or delete.
 const refundHistoryEntrySchema = new Schema(
   {
     actor: { type: String, enum: ["customer", "seller", "admin", "system"], required: true },
@@ -21,7 +19,6 @@ const refundHistoryEntrySchema = new Schema(
   { _id: false }
 );
 
-// Refund-scoped internal chat (customer ↔ admin; seller read-only unless admin requests input)
 const refundMessageSchema = new Schema(
   {
     senderId: { type: Schema.Types.ObjectId, ref: "User", required: true },
@@ -45,13 +42,9 @@ const returnRefundSchema = new Schema(
       enum: ["SELLER_REVIEW", "ADMIN_REVIEW"],
       default: "SELLER_REVIEW",
     },
-    // Refund method: WALLET (seller review) or ORIGINAL_PAYMENT (admin-handled manual PayPal)
     refundMethod: { type: String, enum: ["WALLET", "ORIGINAL_PAYMENT", "MANUAL"], default: "WALLET" },
-    // For ORIGINAL_PAYMENT: customer PayPal email for manual refund
     customerPayPalEmail: { type: String, trim: true, default: null },
-    // License-key–level refund: exact keys to refund
     licenseKeyIds: [{ type: Schema.Types.ObjectId, required: true }],
-    // Evidence image URLs (at least one required at creation; validated in controller)
     evidenceFiles: [String],
     refundAmount: Number,
     refundTransactionId: String,
@@ -66,9 +59,7 @@ const returnRefundSchema = new Schema(
     sellerFeedback: { type: String, default: null },
     sellerFeedbackAt: { type: Date, default: null },
     refundHistory: [refundHistoryEntrySchema],
-    // Refund-specific internal chat
     refundMessages: [refundMessageSchema],
-    // Admin can request seller clarification; seller has 48h to reply
     adminRequestedSellerInput: { type: Boolean, default: false },
     adminRequestedSellerInputAt: Date,
     sellerRepliedAt: Date,
@@ -81,5 +72,5 @@ returnRefundSchema.index({ status: 1 });
 returnRefundSchema.index({ sellerId: 1, status: 1 });
 returnRefundSchema.index({ licenseKeyIds: 1 });
 
-// Purpose: Tracks return and refund requests; admin has full authority; seller feedback is advisory only
+/** Return/refund requests. Admin has full authority; seller feedback advisory. */
 export const ReturnRefund = mongoose.model("ReturnRefund", returnRefundSchema);

@@ -4,7 +4,6 @@ import { Genre } from "../models/genre.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
-// Purpose: Creates a new genre with duplicate name checking
 const createGenre = asyncHandler(async (req, res) => {
   const { name } = req.body;
 
@@ -30,7 +29,6 @@ const createGenre = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, genre, "Genre created successfully"));
 });
 
-// Purpose: Updates a genre by ID with duplicate name validation
 const updateGenre = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { name } = req.body;
@@ -68,7 +66,6 @@ const updateGenre = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, genre, "Genre updated successfully"));
 });
 
-// Purpose: Deletes a genre by ID
 const deleteGenre = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -87,7 +84,6 @@ const deleteGenre = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, genre, "Genre deleted successfully"));
 });
 
-// Purpose: Retrieves all genres with pagination and optional search filtering
 const getAllGenre = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, search = "" } = req.query;
 

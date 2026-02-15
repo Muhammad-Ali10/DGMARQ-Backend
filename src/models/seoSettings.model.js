@@ -31,5 +31,4 @@ const seoSettingsSchema = new Schema(
 
 seoSettingsSchema.index({ page: 1 }, { unique: true });
 
-// Purpose: Stores SEO metadata settings for site pages
 export const SeoSettings = mongoose.model("SeoSettings", seoSettingsSchema);

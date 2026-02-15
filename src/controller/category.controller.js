@@ -5,10 +5,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { fileUploader } from "../utils/cloudinary.js";
 
-
-
-
-// Creates a new category with image upload and validation
+/** Creates category with image upload and validation. */
 const createCategory = asyncHandler(async (req, res) => {
 
     const { name, slug, description } = req.body;
@@ -59,7 +56,7 @@ const createCategory = asyncHandler(async (req, res) => {
 
 })
 
-// Retrieves a single category by ID
+/** Retrieves category by ID. */
 const getCategoryById = asyncHandler(async (req, res) => {
 
     const { categoryId } = req.params
@@ -75,9 +72,9 @@ const getCategoryById = asyncHandler(async (req, res) => {
     }
 
     return res.status(200).json(new ApiResponse(200, category, "Category fetched successfully"))
-})
+});
 
-// Updates category details with validation and duplicate checking
+/** Updates category with validation and duplicate check. */
 const updateCategory = asyncHandler(async (req, res) => {
 
     const { categoryId } = req.params;
@@ -136,7 +133,6 @@ const updateCategory = asyncHandler(async (req, res) => {
 
 })
 
-// Updates category image with cloud storage upload
 const updateCategoryImage = asyncHandler(async (req, res) => {
 
     const { categoryId } = req.params;
@@ -181,7 +177,6 @@ const updateCategoryImage = asyncHandler(async (req, res) => {
 })
 
 
-// Updates category active status
 const updateCategoryStatus = asyncHandler(async (req, res) => {
     const { categoryId } = req.params;
     const { status } = req.body;
@@ -213,7 +208,6 @@ const updateCategoryStatus = asyncHandler(async (req, res) => {
 
 
 
-// Retrieves categories with pagination, search, and filtering
 const getCategories = asyncHandler(async (req, res) => {
 
     const { page = 1, limit = 10, search = "", isActive } = req.query;
@@ -278,7 +272,6 @@ const getCategories = asyncHandler(async (req, res) => {
 
 
 
-// Deletes a category by ID
 const deleteCategory = asyncHandler(async (req, res) => {
 
     const { categoryId } = req.params;

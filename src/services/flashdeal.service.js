@@ -3,7 +3,6 @@ import { Product } from '../models/product.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import mongoose from 'mongoose';
 
-// Purpose: Retrieves active flash deals including upcoming ones sorted by start date
 export const getActiveFlashDeals = async () => {
   const now = new Date();
   return await FlashDeal.find({
@@ -14,7 +13,6 @@ export const getActiveFlashDeals = async () => {
     .sort({ startDate: 1, createdAt: -1 });
 };
 
-// Purpose: Checks if a product has an active flash deal and returns it
 export const getProductFlashDeal = async (productId) => {
   const now = new Date();
   return await FlashDeal.findOne({
@@ -25,7 +23,6 @@ export const getProductFlashDeal = async (productId) => {
   }).populate('productId');
 };
 
-// Purpose: Calculates the discounted price for a product with a flash deal
 export const calculateFlashDealPrice = async (productId, originalPrice) => {
   const flashDeal = await getProductFlashDeal(productId);
   if (!flashDeal) {
@@ -49,7 +46,6 @@ export const calculateFlashDealPrice = async (productId, originalPrice) => {
   };
 };
 
-// Purpose: Validates flash deal start and end dates for correctness
 export const validateFlashDealDates = (startDate, endDate) => {
   const start = new Date(startDate);
   const end = new Date(endDate);
@@ -66,7 +62,6 @@ export const validateFlashDealDates = (startDate, endDate) => {
   return { valid: true };
 };
 
-// Purpose: Checks for overlapping flash deals on a product within a date range
 export const checkOverlappingFlashDeals = async (productId, startDate, endDate, excludeId = null) => {
   const query = {
     productId: new mongoose.Types.ObjectId(productId),

@@ -10,7 +10,6 @@ import { Seller } from '../models/seller.model.js';
 import { sendSupportMessage, markMessagesAsRead } from '../services/support.service.js';
 import { createNotification } from '../services/notification.service.js';
 
-// Purpose: Initialize and configure Socket.IO server with authentication and real-time messaging
 export const initializeSocketIO = (server) => {
   const allowedOrigins = process.env.NODE_ENV === 'production'
     ? ['https://dgmarq.com']

@@ -1,8 +1,11 @@
 import paypal from '@paypal/checkout-server-sdk';
 import { randomUUID } from 'crypto';
 import { logger } from '../utils/logger.js';
+import { getPayPalBaseUrl, validatePayPalEnvironment } from '../config/paypalEnv.js';
 
-// Purpose: Configures and returns the PayPal environment based on settings
+const PAYPAL_PLAN_ID_REGEX = /^P-[A-Z0-9]+$/;
+const PAYPAL_PRODUCT_ID_REGEX = /^PROD-[A-Z0-9]+$/;
+
 const environment = () => {
   const clientId = process.env.PAYPAL_CLIENT_ID;
   const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
@@ -26,12 +29,155 @@ const environment = () => {
   return new paypal.core.SandboxEnvironment(clientId, clientSecret);
 };
 
-// Purpose: Creates and returns a PayPal HTTP client instance
 const client = () => {
   return new paypal.core.PayPalHttpClient(environment());
 };
 
-// Purpose: Creates a PayPal order for payment processing using admin credentials
+/**
+ * Parses PayPal API error response. Safe for logging (no secrets).
+ * @param {Response} response - fetch Response (not ok)
+ * @param {string} context - e.g. 'create_subscription', 'get_plan'
+ * @returns {{ message: string, code?: string, debug_id?: string, details?: unknown, statusCode: number }}
+ */
+export async function paypalErrorHandler(response, context = 'paypal_api') {
+  const statusCode = response.status;
+  let body = null;
+  try {
+    const text = await response.text();
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = null;
+  }
+  if (body && typeof body === 'object') {
+    const debugId = body.debug_id ?? body.details?.[0]?.issue;
+    const message = body.message || body.details?.[0]?.description || body.details?.[0]?.issue || 'Unknown PayPal error';
+    const code = body.name || body.details?.[0]?.issue;
+    logger.error(`[PayPal] ${context} failed`, {
+      statusCode,
+      debug_id: debugId,
+      message,
+      code,
+    });
+    return {
+      message: String(message),
+      code: code ? String(code) : undefined,
+      debug_id: debugId ? String(debugId) : undefined,
+      details: body.details,
+      statusCode,
+    };
+  }
+  logger.error(`[PayPal] ${context} failed (non-JSON)`, { statusCode });
+  return {
+    message: `PayPal API error: ${response.statusText || statusCode}`,
+    statusCode,
+  };
+}
+
+/**
+ * Validates plan_id format. Plan IDs must be P-xxx, not PROD-xxx.
+ */
+export function validatePlanIdFormat(planId) {
+  if (!planId || typeof planId !== 'string') {
+    return { valid: false, error: 'Plan ID is required and must be a string.' };
+  }
+  const trimmed = planId.trim();
+  if (PAYPAL_PRODUCT_ID_REGEX.test(trimmed)) {
+    return { valid: false, error: 'Invalid plan ID: use a billing plan ID (P-...), not a product ID (PROD-...).' };
+  }
+  if (!PAYPAL_PLAN_ID_REGEX.test(trimmed)) {
+    return { valid: false, error: 'Invalid plan ID format. Expected P- followed by alphanumeric characters.' };
+  }
+  return { valid: true, planId: trimmed };
+}
+
+/**
+ * Fetches plan by ID, ensures it is ACTIVE (activates if CREATED/INACTIVE). Returns plan or throws structured error.
+ */
+export async function validatePlan(planId) {
+  const baseUrl = getPayPalBaseUrl();
+  const accessToken = await generateAccessToken();
+
+  const getRes = await fetch(`${baseUrl}/v1/billing/plans/${encodeURIComponent(planId)}`, {
+    method: 'GET',
+    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+  });
+
+  if (!getRes.ok) {
+    const err = await paypalErrorHandler(getRes, 'get_plan');
+    if (getRes.status === 404) {
+      throw Object.assign(new Error('PLAN_NOT_FOUND'), {
+        code: 'PLAN_NOT_FOUND',
+        debug_id: err.debug_id,
+        statusCode: 404,
+        details: { planId, hint: 'Plan may belong to another environment (sandbox vs live) or was deleted.' },
+      });
+    }
+    throw Object.assign(new Error(err.message), { code: err.code, debug_id: err.debug_id, statusCode: err.statusCode });
+  }
+
+  const plan = await getRes.json();
+  logger.debug('[PayPal] Plan fetched', { planId, status: plan.status });
+
+  const status = (plan.status || '').toUpperCase();
+  if (status === 'ACTIVE') {
+    return plan;
+  }
+
+  if (status === 'CREATED' || status === 'INACTIVE') {
+    const activateRes = await fetch(`${baseUrl}/v1/billing/plans/${encodeURIComponent(planId)}/activate`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    if (!activateRes.ok) {
+      const err = await paypalErrorHandler(activateRes, 'activate_plan');
+      throw Object.assign(new Error(`Plan is not ACTIVE and activation failed: ${err.message}`), {
+        code: err.code,
+        debug_id: err.debug_id,
+        statusCode: err.statusCode,
+      });
+    }
+    logger.info('[PayPal] Plan auto-activated', { planId });
+    return { ...plan, status: 'ACTIVE' };
+  }
+
+  throw Object.assign(new Error(`Plan is not in a valid state for subscriptions: ${status}`), {
+    code: 'PLAN_STATE_INVALID',
+    statusCode: 400,
+    details: { planId, status },
+  });
+}
+
+/**
+ * Validates that the product exists (e.g. for a plan's product_id). Throws if product not found.
+ */
+export async function validateProductForPlan(productId) {
+  if (!productId || !PAYPAL_PRODUCT_ID_REGEX.test(String(productId).trim())) {
+    return; // no product id or not PROD- format, skip
+  }
+  const baseUrl = getPayPalBaseUrl();
+  const accessToken = await generateAccessToken();
+
+  const res = await fetch(`${baseUrl}/v1/catalogs/products/${encodeURIComponent(productId)}`, {
+    method: 'GET',
+    headers: { 'Authorization': `Bearer ${accessToken}` },
+  });
+
+  if (!res.ok) {
+    const err = await paypalErrorHandler(res, 'get_product');
+    if (res.status === 404) {
+      throw Object.assign(new Error('PRODUCT_NOT_FOUND'), {
+        code: 'PRODUCT_NOT_FOUND',
+        debug_id: err.debug_id,
+        statusCode: 404,
+        details: { productId, hint: 'Product may have been deleted.' },
+      });
+    }
+    throw Object.assign(new Error(err.message), { code: err.code, debug_id: err.debug_id, statusCode: err.statusCode });
+  }
+  return await res.json();
+}
+
 export const createPayPalOrder = async (orderData) => {
   try {
     const clientId = process.env.PAYPAL_CLIENT_ID;
@@ -175,7 +321,6 @@ export const createPayPalOrder = async (orderData) => {
   }
 };
 
-// Purpose: Captures a PayPal payment for an approved order into admin account
 export const capturePayPalPayment = async (orderId) => {
   try {
     const request = new paypal.orders.OrdersCaptureRequest(orderId);
@@ -203,7 +348,6 @@ export const capturePayPalPayment = async (orderId) => {
   }
 };
 
-// Purpose: Retrieves PayPal order details by order ID
 export const getPayPalOrder = async (orderId) => {
   try {
     const request = new paypal.orders.OrdersGetRequest(orderId);
@@ -215,7 +359,6 @@ export const getPayPalOrder = async (orderId) => {
   }
 };
 
-// Purpose: Creates a PayPal order for advanced checkout using card fields
 export const createPayPalOrderForCheckout = async (orderData) => {
   try {
     if (orderData.currency && orderData.currency !== 'USD') {
@@ -226,8 +369,6 @@ export const createPayPalOrderForCheckout = async (orderData) => {
     let finalAmount;
     let breakdown;
     let items;
-
-    // When explicit amount is provided (e.g. cardAmount when wallet is used), create order for that amount only
     const explicitAmount = orderData.amount != null && typeof orderData.amount === 'number' && orderData.amount > 0
       ? Number(Number(orderData.amount).toFixed(2))
       : null;
@@ -367,7 +508,6 @@ export const createPayPalOrderForCheckout = async (orderData) => {
   }
 };
 
-// Purpose: Captures a PayPal order for checkout with validation checks
 export const capturePayPalOrderForCheckout = async (orderId) => {
   try {
     if (!orderId) {
@@ -461,7 +601,6 @@ export const capturePayPalOrderForCheckout = async (orderId) => {
   }
 };
 
-// Purpose: Builds PayPal OAuth authorize URL for seller Connect flow (no email-only)
 export const getPayPalOAuthAuthorizeUrl = (state, redirectUri) => {
   const clientId = process.env.PAYPAL_CLIENT_ID;
   if (!clientId || clientId.trim() === '' || clientId === 'your_paypal_client_id') {
@@ -481,7 +620,6 @@ export const getPayPalOAuthAuthorizeUrl = (state, redirectUri) => {
   return `${baseUrl}/connect/oauth2/authorize?${params.toString()}`;
 };
 
-// Purpose: Exchanges PayPal OAuth authorization code for access token
 export const exchangePayPalOAuthCode = async (code, redirectUri) => {
   const clientId = process.env.PAYPAL_CLIENT_ID;
   const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
@@ -520,7 +658,6 @@ export const exchangePayPalOAuthCode = async (code, redirectUri) => {
   return await response.json();
 };
 
-// Purpose: Fetches PayPal user info (merchant id, email, verified) for seller onboarding
 export const getPayPalUserInfo = async (accessToken) => {
   const paypalEnv = process.env.PAYPAL_ENV || 'sandbox';
   const baseUrl = paypalEnv.toLowerCase() === 'production'
@@ -552,12 +689,11 @@ export const getPayPalUserInfo = async (accessToken) => {
     paypalEmail: email,
     emailVerified,
     accountStatus,
-    paymentsReceivable: true, // OAuth-connected accounts can receive; PayPal will reject if limited
+    paymentsReceivable: true,
   };
 };
 
-// Purpose: Creates a PayPal payout. Use merchantId when available (never email-only for verified sellers).
-// options: { useMerchantId: boolean } - when true, recipient is PayPal merchant/user ID (PAYPAL_ID).
+/** Creates PayPal payout. options.useMerchantId: when true, recipient is merchant ID. */
 export const createPayPalPayout = async (recipient, amount, currency = 'USD', options = {}) => {
   try {
     const accessToken = await getPayPalAccessToken();
@@ -594,9 +730,7 @@ export const createPayPalPayout = async (recipient, amount, currency = 'USD', op
       items: [item],
     };
 
-    const baseUrl = process.env.PAYPAL_ENV === 'production'
-      ? 'https://api-m.paypal.com'
-      : 'https://api-m.sandbox.paypal.com';
+    const baseUrl = getPayPalBaseUrl();
 
     const response = await fetch(`${baseUrl}/v1/payments/payouts`, {
       method: 'POST',
@@ -628,25 +762,12 @@ export const createPayPalPayout = async (recipient, amount, currency = 'USD', op
   }
 };
 
-// Purpose: Gets PayPal access token for Payouts API authentication
-const getPayPalAccessToken = async () => {
+export async function generateAccessToken() {
   try {
+    validatePayPalEnvironment();
     const clientId = process.env.PAYPAL_CLIENT_ID;
     const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
-    const paypalEnv = process.env.PAYPAL_ENV || 'sandbox';
-
-    if (!clientId || clientId.trim() === '' || clientId === 'your_paypal_client_id') {
-      throw new Error('PayPal CLIENT_ID is missing or not configured. Please set PAYPAL_CLIENT_ID in your .env file.');
-    }
-
-    if (!clientSecret || clientSecret.trim() === '' || clientSecret === 'your_paypal_client_secret') {
-      throw new Error('PayPal CLIENT_SECRET is missing or not configured. Please set PAYPAL_CLIENT_SECRET in your .env file.');
-    }
-
-    const isProduction = paypalEnv.toLowerCase() === 'production';
-    const baseUrl = isProduction
-      ? 'https://api-m.paypal.com' 
-      : 'https://api-m.sandbox.paypal.com';
+    const baseUrl = getPayPalBaseUrl();
 
     const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
@@ -662,29 +783,37 @@ const getPayPalAccessToken = async () => {
     });
 
     if (!response.ok) {
-      const errorData = await response.text();
-      let errorMessage = `Failed to get PayPal access token: ${errorData}`;
-      
-      if (errorData.includes('invalid_client') || errorData.includes('Client Authentication failed')) {
-        errorMessage = `PayPal authentication failed. Please check:\n` +
-          `1. PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET are correct\n` +
-          `2. Credentials match the environment (${isProduction ? 'PRODUCTION' : 'SANDBOX'})\n` +
-          `3. Current environment: PAYPAL_ENV=${paypalEnv}\n` +
-          `4. Original error: ${errorData}`;
+      const err = await paypalErrorHandler(response, 'oauth2_token');
+      const isAuthFailure = response.status === 401 || (err.message && (err.message.includes('invalid_client') || err.message.includes('Client Authentication')));
+      if (isAuthFailure) {
+        logger.error('[PayPal] Token generation failed: invalid credentials or wrong environment', {
+          debug_id: err.debug_id,
+          statusCode: err.statusCode,
+        });
+        throw new Error(
+          `PayPal authentication failed. Check PAYPAL_CLIENT_ID/PAYPAL_CLIENT_SECRET and that they match PAYPAL_ENV (sandbox vs production). debug_id: ${err.debug_id || 'n/a'}`
+        );
       }
-      
-      throw new Error(errorMessage);
+      throw new Error(`PayPal token failed: ${err.message}`);
     }
 
     const data = await response.json();
-    return data.access_token;
+    const token = data.access_token;
+    if (!token) {
+      logger.error('[PayPal] Token response missing access_token');
+      throw new Error('PayPal token response missing access_token');
+    }
+    logger.debug('[PayPal] Access token obtained successfully');
+    return token;
   } catch (error) {
-    logger.error('PayPal access token error', error);
+    if (error.message && error.message.startsWith('PayPal')) throw error;
+    logger.error('[PayPal] Access token error', error?.message || error);
     throw new Error(`Failed to get PayPal access token: ${error.message}`);
   }
-};
+}
 
-// Purpose: Validates if an email has valid format for PayPal payouts
+const getPayPalAccessToken = generateAccessToken;
+
 export const validatePayPalEmail = async (email) => {
   try {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -708,7 +837,6 @@ export const validatePayPalEmail = async (email) => {
   }
 };
 
-// Purpose: Verifies PayPal webhook signature using PayPal's verification API
 export const verifyPayPalWebhook = async (req) => {
   try {
     const webhookId = process.env.PAYPAL_WEBHOOK_ID;
@@ -764,9 +892,7 @@ export const verifyPayPalWebhook = async (req) => {
       webhook_event: parsedWebhookEvent,
     };
 
-    const baseUrl = process.env.PAYPAL_ENV === 'production' 
-      ? 'https://api-m.paypal.com' 
-      : 'https://api-m.sandbox.paypal.com';
+    const baseUrl = getPayPalBaseUrl();
 
     const response = await fetch(`${baseUrl}/v1/notifications/verify-webhook-signature`, {
       method: 'POST',
@@ -810,7 +936,6 @@ export const verifyPayPalWebhook = async (req) => {
   }
 };
 
-// Purpose: Processes a PayPal refund for a captured payment
 export const processRefund = async (captureId, amount, currency = 'USD') => {
   try {
     const request = new paypal.payments.CapturesRefundRequest(captureId);
@@ -833,48 +958,42 @@ export const processRefund = async (captureId, amount, currency = 'USD') => {
   }
 };
 
-// Purpose: Creates a PayPal subscription plan for recurring billing
-export const createPayPalSubscriptionPlan = async (planData) => {
-  try {
-    const accessToken = await getPayPalAccessToken();
-    const baseUrl = process.env.PAYPAL_ENV === 'production' 
-      ? 'https://api-m.paypal.com' 
-      : 'https://api-m.sandbox.paypal.com';
+export async function createPayPalSubscriptionPlan(planData) {
+  const productId = planData.productId || planData.product_id;
+  if (!productId || !PAYPAL_PRODUCT_ID_REGEX.test(String(productId).trim())) {
+    throw new Error('createPayPalSubscriptionPlan requires product_id (PROD-xxx). Create a product via Catalog Products API first.');
+  }
+  const baseUrl = getPayPalBaseUrl();
+  const accessToken = await generateAccessToken();
 
-    const plan = {
-      product_id: planData.productId || 'DGMARQ_PLUS',
-      name: planData.name || 'DGMARQ+ Monthly Subscription',
-      description: planData.description || 'Monthly subscription to DGMARQ+ with 2% discount on all purchases',
-      status: 'ACTIVE',
-      billing_cycles: [
-        {
-          frequency: {
-            interval_unit: 'MONTH',
-            interval_count: 1,
-          },
-          tenure_type: 'REGULAR',
-          sequence: 1,
-          total_cycles: 0, // 0 = infinite
-          pricing_scheme: {
-            fixed_price: {
-              value: planData.price.toFixed(2),
-              currency_code: planData.currency || 'EUR',
-            },
+  const plan = {
+    product_id: String(productId).trim(),
+    name: planData.name || 'DGMARQ+ Monthly Subscription',
+    description: planData.description || 'Monthly subscription to DGMARQ+ with 2% discount on all purchases',
+    status: 'ACTIVE',
+    billing_cycles: [
+      {
+        frequency: { interval_unit: 'MONTH', interval_count: 1 },
+        tenure_type: 'REGULAR',
+        sequence: 1,
+        total_cycles: 0,
+        pricing_scheme: {
+          fixed_price: {
+            value: Number(planData.price).toFixed(2),
+            currency_code: planData.currency || 'EUR',
           },
         },
-      ],
-      payment_preferences: {
-        auto_bill_outstanding: true,
-        setup_fee: {
-          value: '0',
-          currency_code: planData.currency || 'EUR',
-        },
-        setup_fee_failure_action: 'CONTINUE',
-        payment_failure_threshold: 3,
       },
-    };
+    ],
+    payment_preferences: {
+      auto_bill_outstanding: true,
+      setup_fee: { value: '0', currency_code: planData.currency || 'EUR' },
+      setup_fee_failure_action: 'CONTINUE',
+      payment_failure_threshold: 3,
+    },
+  };
 
-    const response = await fetch(`${baseUrl}/v1/billing/plans`, {
+  const response = await fetch(`${baseUrl}/v1/billing/plans`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -884,135 +1003,142 @@ export const createPayPalSubscriptionPlan = async (planData) => {
       body: JSON.stringify(plan),
     });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(`PayPal plan creation failed: ${errorData.message || JSON.stringify(errorData)}`);
-    }
-
-    const result = await response.json();
-    return {
-      id: result.id,
-      status: result.status,
-    };
-  } catch (error) {
-    logger.error('PayPal subscription plan creation failed', error);
-    throw new Error(`PayPal subscription plan creation failed: ${error.message}`);
-  }
-};
-
-// Purpose: Creates a PayPal subscription for recurring billing
-export const createPayPalSubscription = async (planId, returnUrl, cancelUrl) => {
-  try {
-    const accessToken = await getPayPalAccessToken();
-    const baseUrl = process.env.PAYPAL_ENV === 'production' 
-      ? 'https://api-m.paypal.com' 
-      : 'https://api-m.sandbox.paypal.com';
-
-    const subscription = {
-      plan_id: planId,
-      start_time: new Date(Date.now() + 60000).toISOString(),
-      subscriber: {
-        name: {
-          given_name: 'DGMARQ',
-          surname: 'User',
-        },
-      },
-      application_context: {
-        brand_name: 'DGMARQ',
-        locale: 'en-US',
-        shipping_preference: 'NO_SHIPPING',
-        user_action: 'SUBSCRIBE_NOW',
-        payment_method: {
-          payer_selected: 'PAYPAL',
-          payee_preferred: 'IMMEDIATE_PAYMENT_REQUIRED',
-        },
-        return_url: returnUrl,
-        cancel_url: cancelUrl,
-      },
-    };
-
-    const response = await fetch(`${baseUrl}/v1/billing/subscriptions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-        'Prefer': 'return=representation',
-      },
-      body: JSON.stringify(subscription),
+  if (!response.ok) {
+    const err = await paypalErrorHandler(response, 'create_plan');
+    throw Object.assign(new Error(`PayPal plan creation failed: ${err.message}`), {
+      code: err.code,
+      debug_id: err.debug_id,
+      statusCode: err.statusCode,
     });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(`PayPal subscription creation failed: ${errorData.message || JSON.stringify(errorData)}`);
-    }
-
-    const result = await response.json();
-    return {
-      id: result.id,
-      status: result.status,
-      links: result.links,
-    };
-  } catch (error) {
-    logger.error('PayPal subscription creation failed', error);
-    throw new Error(`PayPal subscription creation failed: ${error.message}`);
   }
-};
 
-// Purpose: Retrieves PayPal subscription details by subscription ID
-export const getPayPalSubscription = async (subscriptionId) => {
-  try {
-    const accessToken = await getPayPalAccessToken();
-    const baseUrl = process.env.PAYPAL_ENV === 'production' 
-      ? 'https://api-m.paypal.com' 
-      : 'https://api-m.sandbox.paypal.com';
+  const result = await response.json();
+  logger.info('[PayPal] Plan created', { planId: result.id, status: result.status });
+  return {
+    id: result.id,
+    status: result.status,
+  };
+}
 
-    const response = await fetch(`${baseUrl}/v1/billing/subscriptions/${subscriptionId}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
+export async function createPayPalSubscription(planId, returnUrl, cancelUrl) {
+  const envLabel = (process.env.PAYPAL_ENV || 'sandbox').toLowerCase() === 'production' ? 'PRODUCTION' : 'SANDBOX';
+  logger.info('[PayPal] createPayPalSubscription', { planId: planId ? `${planId.substring(0, 10)}...` : '(missing)', environment: envLabel });
+
+  const formatCheck = validatePlanIdFormat(planId);
+  if (!formatCheck.valid) {
+    logger.warn('[PayPal] Invalid plan ID format', { planId: planId ? 'present' : 'missing', error: formatCheck.error });
+    throw Object.assign(new Error(formatCheck.error), { code: 'INVALID_PLAN_ID_FORMAT', statusCode: 400 });
+  }
+  const validPlanId = formatCheck.planId;
+
+  const plan = await validatePlan(validPlanId);
+  const productId = plan.product_id;
+  if (productId) {
+    await validateProductForPlan(productId);
+  }
+
+  const baseUrl = getPayPalBaseUrl();
+  const accessToken = await generateAccessToken();
+
+  const subscription = {
+    plan_id: validPlanId,
+    start_time: new Date(Date.now() + 60000).toISOString(),
+    subscriber: {
+      name: {
+        given_name: 'DGMARQ',
+        surname: 'User',
       },
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(`Failed to get PayPal subscription: ${errorData.message || JSON.stringify(errorData)}`);
-    }
-
-    return await response.json();
-  } catch (error) {
-    logger.error('Failed to get PayPal subscription', error);
-    throw new Error(`Failed to get PayPal subscription: ${error.message}`);
-  }
-};
-
-// Purpose: Cancels a PayPal subscription with reason
-export const cancelPayPalSubscription = async (subscriptionId, reason = 'User requested cancellation') => {
-  try {
-    const accessToken = await getPayPalAccessToken();
-    const baseUrl = process.env.PAYPAL_ENV === 'production' 
-      ? 'https://api-m.paypal.com' 
-      : 'https://api-m.sandbox.paypal.com';
-
-    const response = await fetch(`${baseUrl}/v1/billing/subscriptions/${subscriptionId}/cancel`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
+    },
+    application_context: {
+      brand_name: 'DGMARQ',
+      locale: 'en-US',
+      shipping_preference: 'NO_SHIPPING',
+      user_action: 'SUBSCRIBE_NOW',
+      payment_method: {
+        payer_selected: 'PAYPAL',
+        payee_preferred: 'IMMEDIATE_PAYMENT_REQUIRED',
       },
-      body: JSON.stringify({
-        reason,
-      }),
+      return_url: returnUrl,
+      cancel_url: cancelUrl,
+    },
+  };
+
+  const response = await fetch(`${baseUrl}/v1/billing/subscriptions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+      'Prefer': 'return=representation',
+    },
+    body: JSON.stringify(subscription),
+  });
+
+  if (!response.ok) {
+    const err = await paypalErrorHandler(response, 'create_subscription');
+    const msg = err.message || 'The specified resource does not exist.';
+    logger.error('[PayPal] Subscription creation failed', {
+      planId: validPlanId,
+      debug_id: err.debug_id,
+      statusCode: err.statusCode,
     });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(`PayPal subscription cancellation failed: ${errorData.message || JSON.stringify(errorData)}`);
-    }
-
-    return { success: true };
-  } catch (error) {
-    logger.error('PayPal subscription cancellation failed', error);
-    throw new Error(`PayPal subscription cancellation failed: ${error.message}`);
+    const e = new Error(`PayPal subscription creation failed: ${msg}`);
+    e.code = err.code;
+    e.debug_id = err.debug_id;
+    e.statusCode = err.statusCode;
+    e.details = err.details;
+    throw e;
   }
-};
+
+  const result = await response.json();
+  logger.info('[PayPal] Subscription created', { subscriptionId: result.id, status: result.status });
+  return {
+    id: result.id,
+    status: result.status,
+    links: result.links,
+  };
+}
+
+export async function getPayPalSubscription(subscriptionId) {
+  const baseUrl = getPayPalBaseUrl();
+  const accessToken = await generateAccessToken();
+
+  const response = await fetch(`${baseUrl}/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+    method: 'GET',
+    headers: { 'Authorization': `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok) {
+    const err = await paypalErrorHandler(response, 'get_subscription');
+    const e = new Error(`Failed to get PayPal subscription: ${err.message}`);
+    e.code = err.code;
+    e.debug_id = err.debug_id;
+    e.statusCode = err.statusCode;
+    throw e;
+  }
+  return await response.json();
+}
+
+export async function cancelPayPalSubscription(subscriptionId, reason = 'User requested cancellation') {
+  const baseUrl = getPayPalBaseUrl();
+  const accessToken = await generateAccessToken();
+
+  const response = await fetch(`${baseUrl}/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ reason }),
+  });
+
+  if (!response.ok) {
+    const err = await paypalErrorHandler(response, 'cancel_subscription');
+    throw Object.assign(new Error(`PayPal subscription cancellation failed: ${err.message}`), {
+      code: err.code,
+      debug_id: err.debug_id,
+      statusCode: err.statusCode,
+    });
+  }
+  return { success: true };
+}
 

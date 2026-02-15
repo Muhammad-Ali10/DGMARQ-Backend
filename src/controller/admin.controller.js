@@ -19,7 +19,6 @@ import { SeoSettings } from "../models/seoSettings.model.js";
 import { validateMetaTitle, validateMetaDescription } from "../utils/sanitize.js";
 import { getHandlingFeeConfig, validateHandlingFeeConfig } from "../services/handlingFee.service.js";
 
-// Purpose: Approves a pending seller application and activates their account
 const approveSeller = asyncHandler(async (req, res) => {
   const { sellerId } = req.params;
   const adminId = req.user._id;
@@ -54,7 +53,6 @@ const approveSeller = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Rejects a pending seller application and deactivates their account
 const rejectSeller = asyncHandler(async (req, res) => {
   const { sellerId } = req.params;
   const { reason } = req.body;
@@ -91,7 +89,6 @@ const rejectSeller = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all pending seller applications with pagination
 const getPendingSellers = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10 } = req.query;
 
@@ -118,7 +115,6 @@ const getPendingSellers = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all sellers with optional status filtering and pagination
 const getAllSellers = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, status } = req.query;
 
@@ -150,7 +146,6 @@ const getAllSellers = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves detailed seller information including product count, order stats, and revenue
 const getSellerDetails = asyncHandler(async (req, res) => {
   const { sellerId } = req.params;
 
@@ -201,7 +196,6 @@ const getSellerDetails = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Blocks or unblocks an active seller account
 const blockSeller = asyncHandler(async (req, res) => {
   const { sellerId } = req.params;
   const { action, reason } = req.body;
@@ -253,7 +247,6 @@ const blockSeller = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Approves a pending product and sets it to active status
 const approveProduct = asyncHandler(async (req, res) => {
   const { productId } = req.params;
   const adminId = req.user._id;
@@ -281,7 +274,6 @@ const approveProduct = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Rejects a product with a specified reason
 const rejectProduct = asyncHandler(async (req, res) => {
   const { productId } = req.params;
   const { reason } = req.body;
@@ -309,7 +301,6 @@ const rejectProduct = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all pending products with pagination and stock sync
 const getPendingProducts = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10 } = req.query;
   const { LicenseKey } = await import("../models/licensekey.model.js");
@@ -361,7 +352,6 @@ const getPendingProducts = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all products with optional status filter and pagination
 const getAllProducts = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, status } = req.query;
   const { LicenseKey } = await import("../models/licensekey.model.js");
@@ -422,7 +412,6 @@ const getAllProducts = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Updates featured status and extra commission for a product (admin only)
 const updateProductFeaturedSettings = asyncHandler(async (req, res) => {
   const { productId } = req.params;
   const { isFeatured, featuredExtraCommission } = req.body;
@@ -464,7 +453,6 @@ const updateProductFeaturedSettings = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves detailed product information by ID for admin view
 const getProductDetails = asyncHandler(async (req, res) => {
   const { productId } = req.params;
   const { LicenseKey } = await import("../models/licensekey.model.js");
@@ -516,7 +504,6 @@ const getProductDetails = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all payouts with optional status filter and pagination
 const getAllPayouts = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, status } = req.query;
 
@@ -547,7 +534,6 @@ const getAllPayouts = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Manually processes a pending payout for a seller
 const processPayout = asyncHandler(async (req, res) => {
   const { payoutId } = req.params;
 
@@ -573,7 +559,6 @@ const processPayout = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all users with optional role and status filters
 const getAllUsers = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, role, isActive } = req.query;
 
@@ -621,7 +606,6 @@ const getAllUsers = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Bans or unbans a user account
 const banUser = asyncHandler(async (req, res) => {
   const { userId } = req.params;
   const { action, reason } = req.body;
@@ -658,7 +642,6 @@ const banUser = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves comprehensive dashboard statistics for admin overview
 const getDashboardStats = asyncHandler(async (req, res) => {
   const { ReturnRefund } = await import("../models/returnrefund.model.js");
 
@@ -754,7 +737,6 @@ const getDashboardStats = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Moderates chat by blocking conversations or deleting messages
 const moderateChat = asyncHandler(async (req, res) => {
   const { conversationId } = req.params;
   const { action, messageId } = req.body;
@@ -794,10 +776,9 @@ const moderateChat = asyncHandler(async (req, res) => {
   }
 });
 
-// Purpose: Retrieves the current platform commission rate
 const getCommissionRate = asyncHandler(async (req, res) => {
   const setting = await PlatformSettings.findOne({ key: 'commission_rate' });
-  const rate = setting ? setting.value : 0.1; // Default 10%
+  const rate = setting ? setting.value : 0.1;
 
   return res.status(200).json(
     new ApiResponse(200, {
@@ -808,7 +789,6 @@ const getCommissionRate = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Updates the platform commission rate
 const updateCommissionRate = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
   const { commissionRate } = req.body;
@@ -841,7 +821,6 @@ const updateCommissionRate = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves the auto-approve products setting
 const getAutoApproveSetting = asyncHandler(async (req, res) => {
   const setting = await PlatformSettings.findOne({ key: 'auto_approve_products' });
   const autoApprove = setting ? setting.value === true : false;
@@ -855,7 +834,6 @@ const getAutoApproveSetting = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Updates the auto-approve products setting
 const updateAutoApproveSetting = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
   const { autoApprove } = req.body;
@@ -887,7 +865,6 @@ const updateAutoApproveSetting = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves home page SEO settings
 const getHomePageSEO = asyncHandler(async (req, res) => {
   const seoSettings = await SeoSettings.findOne({ page: 'home' });
 
@@ -912,7 +889,6 @@ const getHomePageSEO = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Updates home page SEO settings
 const updateHomePageSEO = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
   const { metaTitle, metaDescription } = req.body;
@@ -956,7 +932,6 @@ const updateHomePageSEO = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves buyer handling fee configuration settings
 const getBuyerHandlingFeeSetting = asyncHandler(async (req, res) => {
   const config = await getHandlingFeeConfig();
   const setting = await PlatformSettings.findOne({ key: 'buyer_handling_fee' });
@@ -971,7 +946,6 @@ const getBuyerHandlingFeeSetting = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Updates buyer handling fee configuration settings
 const updateBuyerHandlingFeeSetting = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
   const value = validateHandlingFeeConfig(req.body);
@@ -994,7 +968,6 @@ const updateBuyerHandlingFeeSetting = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves handling fee statistics for admin dashboard
 const getHandlingFeeStats = asyncHandler(async (req, res) => {
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());

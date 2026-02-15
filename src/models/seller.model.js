@@ -73,5 +73,4 @@ const sellerSchema = new mongoose.Schema({
 
 sellerSchema.plugin(mongooseAggregatePaginate)
 
-// Purpose: Represents a seller account with shop details and payout settings
 export const Seller = mongoose.model("Seller", sellerSchema)

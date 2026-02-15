@@ -14,7 +14,6 @@ import {
 import { upload } from "../middlerwares/multer.middlerware.js";
 import { fileUploader } from "../utils/cloudinary.js";
 
-// Purpose: Creates a new flash deal for a product with discount and date range
 const createFlashDeal = asyncHandler(async (req, res) => {
   const { productId, discountPercentage, startDate, endDate, banner } =
     req.body;
@@ -85,7 +84,6 @@ const createFlashDeal = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, populated, "Flash deal created successfully"));
 });
 
-// Purpose: Calculates countdown timer values from start and end dates
 const calculateCountdown = (startDate, endDate) => {
   const now = new Date();
   const start = new Date(startDate);
@@ -120,7 +118,6 @@ const calculateCountdown = (startDate, endDate) => {
   };
 };
 
-// Purpose: Calculates total sold quantity for a product from paid orders
 const getSoldQuantity = async (productId) => {
   const result = await Order.aggregate([
     {
@@ -148,7 +145,6 @@ const getSoldQuantity = async (productId) => {
   return result[0]?.totalSold || 0;
 };
 
-// Purpose: Retrieves all active flash deals with countdown and stock info
 const getFlashDeals = asyncHandler(async (req, res) => {
   const deals = await getActiveFlashDeals();
 
@@ -197,7 +193,6 @@ const getFlashDeals = asyncHandler(async (req, res) => {
     );
 });
 
-// Purpose: Retrieves a specific flash deal by ID
 const getFlashDealById = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -219,7 +214,6 @@ const getFlashDealById = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, deal, "Flash deal retrieved successfully"));
 });
 
-// Purpose: Updates an existing flash deal configuration
 const updateFlashDeal = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const {
@@ -298,7 +292,6 @@ const updateFlashDeal = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, populated, "Flash deal updated successfully"));
 });
 
-// Purpose: Deletes a flash deal permanently
 const deleteFlashDeal = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -318,7 +311,6 @@ const deleteFlashDeal = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, null, "Flash deal deleted successfully"));
 });
 
-// Purpose: Retrieves all flash deals for admin with pagination and filters
 const getAllFlashDeals = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, isActive } = req.query;
 

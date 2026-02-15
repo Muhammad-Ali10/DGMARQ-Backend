@@ -15,5 +15,4 @@ const trendingCategorySchema = new Schema(
 trendingCategorySchema.index({ year: 1, month: 1, totalSales: -1 });
 trendingCategorySchema.index({ generatedAt: -1 });
 
-// Purpose: Stores monthly trending category data based on sales and revenue metrics
 export const TrendingCategory = mongoose.model("TrendingCategory", trendingCategorySchema)

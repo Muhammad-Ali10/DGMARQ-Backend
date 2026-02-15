@@ -4,7 +4,6 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { Mode } from "../models/mode.model.js";
 import mongoose from "mongoose";
 
-// Purpose: Creates a new mode with duplicate name checking
 const createMode = asyncHandler(async (req, res) => {
   const { name, isActive } = req.body;
 
@@ -28,7 +27,6 @@ const createMode = asyncHandler(async (req, res) => {
   res.status(201).json(new ApiResponse(201, mode, "Mode created successfully"));
 });
 
-// Purpose: Updates a mode by ID with duplicate name validation
 const updateMode = asyncHandler(async (req, res) => {
   const { modeId } = req.params;
   const { name, isActive } = req.body;
@@ -62,7 +60,6 @@ const updateMode = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, mode, "Mode updated successfully"));
 });
 
-// Purpose: Toggles the active status of a mode
 const toggleModeStatus = asyncHandler(async (req, res) => {
   const { modeId } = req.params;
 
@@ -83,7 +80,6 @@ const toggleModeStatus = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, mode, "Mode status toggled successfully"));
 });
 
-// Purpose: Deletes a mode by ID
 const deleteMode = asyncHandler(async (req, res) => {
   const { modeId } = req.params;
 
@@ -100,7 +96,6 @@ const deleteMode = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, mode, "Mode deleted successfully"));
 });
 
-// Purpose: Retrieves all modes with pagination, search, and optional active status filtering
 const getAllModes = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, search = "", isActive } = req.query;
 

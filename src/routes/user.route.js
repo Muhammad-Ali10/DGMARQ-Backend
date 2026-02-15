@@ -27,7 +27,6 @@ import {
 import { upload } from "../middlerwares/multer.middlerware.js";
 import { verifyJWT, verifyJWTForLogout } from "../middlerwares/authmiddlerware.js";
 
-// Purpose: User authentication, profile, OAuth, email verification, and session management routes
 
 const router = Router() 
 

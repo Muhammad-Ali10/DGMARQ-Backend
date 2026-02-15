@@ -10,7 +10,6 @@ import { getDecryptedKey } from "../services/key.service.js";
 import { logAction } from "../services/audit.service.js";
 import { logger } from "../utils/logger.js";
 
-// Purpose: Retrieves all license keys owned by the authenticated user with pagination
 const getMyLicenseKeys = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { page = 1, limit = 10 } = req.query;
@@ -112,7 +111,6 @@ const getMyLicenseKeys = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Decrypts and reveals a license key to its owner after verifying ownership
 const revealLicenseKey = asyncHandler(async (req, res) => {
   const { keyId } = req.params;
   const userId = req.user._id;
@@ -190,7 +188,6 @@ const revealLicenseKey = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves license keys for a seller's product with pagination
 const getSellerLicenseKeys = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { productId } = req.params;
@@ -302,7 +299,6 @@ const getSellerLicenseKeys = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Deletes an unused license key from a seller's product
 const deleteSellerLicenseKey = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { keyId } = req.params;
@@ -400,7 +396,6 @@ const deleteSellerLicenseKey = asyncHandler(async (req, res) => {
   }
 });
 
-// Purpose: Decrypts and reveals a license key for the seller who owns the product
 const revealSellerLicenseKey = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { keyId } = req.params;

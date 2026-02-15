@@ -5,7 +5,6 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { UpcomingGames } from "../models/upcominggames.model.js";
 import { Product } from "../models/product.model.js";
 
-// Purpose: Retrieves upcoming games for homepage display
 const getUpcomingGames = asyncHandler(async (req, res) => {
   const config = await UpcomingGames.getOrCreate();
 
@@ -40,7 +39,6 @@ const getUpcomingGames = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves upcoming games configuration for admin
 const getUpcomingGamesConfig = asyncHandler(async (req, res) => {
   const config = await UpcomingGames.getOrCreate();
 
@@ -71,7 +69,6 @@ const getUpcomingGamesConfig = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Adds products to upcoming games list for admin
 const addProducts = asyncHandler(async (req, res) => {
   const { productIds } = req.body;
 
@@ -158,7 +155,6 @@ const addProducts = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Removes products from upcoming games list for admin
 const removeProducts = asyncHandler(async (req, res) => {
   const { productIds } = req.body;
 
@@ -216,7 +212,6 @@ const removeProducts = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Updates product display order in upcoming games for admin
 const reorderProducts = asyncHandler(async (req, res) => {
   const { productIds } = req.body;
 
@@ -306,7 +301,6 @@ const reorderProducts = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Replaces all products in upcoming games list for admin
 const updateUpcomingGames = asyncHandler(async (req, res) => {
   const { productIds } = req.body;
 

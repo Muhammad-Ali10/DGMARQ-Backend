@@ -12,5 +12,4 @@ const flashDealSchema = new mongoose.Schema(
   { timestamps: true },
 )
 
-// Purpose: Stores time-limited promotional discounts for products
 export const FlashDeal = mongoose.model("FlashDeal", flashDealSchema)

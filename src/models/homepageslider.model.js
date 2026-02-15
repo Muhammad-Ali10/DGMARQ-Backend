@@ -13,5 +13,4 @@ const homepageSliderSchema = new mongoose.Schema(
   { timestamps: true },
 )
 
-// Purpose: Manages homepage carousel slides with images and product links
 export const HomepageSlider = mongoose.model("HomepageSlider", homepageSliderSchema)

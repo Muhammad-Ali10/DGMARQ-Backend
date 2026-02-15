@@ -1,12 +1,11 @@
 import nodemailer from 'nodemailer';
 import mongoose from 'mongoose';
-import { licenseKeyEmailTemplate, orderConfirmationEmailTemplate, payoutNotificationEmailTemplate } from '../utils/emailTemplates.js';
+import { licenseKeyEmailTemplate, orderConfirmationEmailTemplate, payoutNotificationEmailTemplate, refundIssuedSellerEmailTemplate, refundRequestedSellerEmailTemplate } from '../utils/emailTemplates.js';
 import { EmailLog } from '../models/emailLog.model.js';
 import { decryptKey } from '../utils/encryption.js';
 import { LicenseKey } from '../models/licensekey.model.js';
 import { logger } from '../utils/logger.js';
 
-// Purpose: Creates and configures an email transporter using SMTP settings
 const createTransporter = () => {
   if (process.env.SMTP_HOST) {
     return nodemailer.createTransport({
@@ -30,7 +29,6 @@ const createTransporter = () => {
   });
 };
 
-// Purpose: Sends license key email to user after order completion
 export const sendLicenseKeyEmail = async (order, user) => {
   try {
     const transporter = createTransporter();
@@ -228,7 +226,6 @@ export const sendLicenseKeyEmail = async (order, user) => {
   }
 };
 
-// Purpose: Sends license key email to guest (no user account) after order completion
 export const sendLicenseKeyEmailToGuest = async (order, guestEmail) => {
   try {
     const transporter = createTransporter();
@@ -362,7 +359,6 @@ export const sendLicenseKeyEmailToGuest = async (order, guestEmail) => {
   }
 };
 
-// Purpose: Sends order confirmation email to user after successful order
 export const sendOrderConfirmation = async (order, user) => {
   try {
     if (!order || !user) {
@@ -436,7 +432,6 @@ export const sendOrderConfirmation = async (order, user) => {
   }
 };
 
-// Purpose: Sends payout notification email to seller after payout is processed
 export const sendPayoutNotification = async (payout, seller, user) => {
   try {
     const transporter = createTransporter();
@@ -466,7 +461,94 @@ export const sendPayoutNotification = async (payout, seller, user) => {
   }
 };
 
-// Purpose: Sends password reset email with reset link to user
+export const sendRefundRequestedEmailToSeller = async ({ sellerUser, orderNumber, productName, refundAmount }) => {
+  try {
+    const transporter = createTransporter();
+    const dashboardUrl = `${process.env.FRONTEND_URL || ''}/seller/return-refunds`;
+    const html = refundRequestedSellerEmailTemplate(orderNumber, productName, refundAmount, dashboardUrl);
+    const mailOptions = {
+      from: process.env.EMAIL_FROM || 'noreply@dgmarq.com',
+      to: sellerUser.email,
+      subject: `Refund Requested for Order #${orderNumber}`,
+      html,
+    };
+    await transporter.sendMail(mailOptions);
+    logger.info(`Refund requested email sent to seller ${sellerUser.email} for order #${orderNumber}`);
+    await EmailLog.create({
+      recipient: sellerUser.email,
+      subject: mailOptions.subject,
+      template: 'refundRequestedSeller',
+      status: 'sent',
+      sentAt: new Date(),
+    });
+    return { success: true };
+  } catch (error) {
+    logger.error('Failed to send refund-requested email to seller', { orderNumber, err: error.message });
+    await EmailLog.create({
+      recipient: sellerUser?.email || 'unknown',
+      subject: `Refund Requested for Order #${orderNumber}`,
+      template: 'refundRequestedSeller',
+      status: 'failed',
+      error: error.message,
+    });
+    throw error;
+  }
+};
+
+export const sendRefundIssuedEmailToSeller = async ({
+  sellerUser,
+  orderNumber,
+  productName,
+  buyerName,
+  refundAmount,
+  refundType,
+  payoutStatus,
+  refundMethod = 'WALLET',
+}) => {
+  try {
+    const transporter = createTransporter();
+    const html = refundIssuedSellerEmailTemplate(
+      orderNumber,
+      productName,
+      buyerName,
+      refundAmount,
+      refundType,
+      payoutStatus,
+      refundMethod
+    );
+
+    const mailOptions = {
+      from: process.env.EMAIL_FROM || 'noreply@dgmarq.com',
+      to: sellerUser.email,
+      subject: `Refund Issued for Order #${orderNumber}`,
+      html,
+    };
+
+    await transporter.sendMail(mailOptions);
+    logger.info(`Refund issued email sent to seller ${sellerUser.email} for order #${orderNumber}`);
+
+    await EmailLog.create({
+      recipient: sellerUser.email,
+      subject: mailOptions.subject,
+      template: 'refundIssuedSeller',
+      status: 'sent',
+      sentAt: new Date(),
+    });
+
+    return { success: true };
+  } catch (error) {
+    logger.error('Failed to send refund-issued email to seller', { orderNumber, err: error.message });
+    await EmailLog.create({
+      recipient: sellerUser?.email || 'unknown',
+      subject: `Refund Issued for Order #${orderNumber}`,
+      template: 'refundIssuedSeller',
+      status: 'failed',
+      error: error.message,
+    });
+    throw error;
+  }
+};
+
 export const sendPasswordResetEmail = async (user, resetToken) => {
   try {
     const transporter = createTransporter();
@@ -510,7 +592,6 @@ export const sendPasswordResetEmail = async (user, resetToken) => {
   }
 };
 
-// Purpose: Sends email verification OTP to user for account verification
 export const sendEmailVerificationOTP = async (user, otp) => {
   try {
     const transporter = createTransporter();

@@ -24,6 +24,5 @@ const reviewVoteSchema = new mongoose.Schema(
 
 reviewVoteSchema.index({ reviewId: 1, userId: 1 }, { unique: true });
 
-// Purpose: Tracks user votes on review helpfulness
 export const ReviewVote = mongoose.model("ReviewVote", reviewVoteSchema);
 

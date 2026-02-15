@@ -23,7 +23,6 @@ import {
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 import { upload } from "../middlerwares/multer.middlerware.js";
 
-// Purpose: Seller application, profile management, shop settings, and license key routes
 
 const router = Router()
 

@@ -1,7 +1,6 @@
 import { v2 as cloudinary } from "cloudinary"
 import { logger } from "./logger.js"
 
-// Purpose: Deletes a file from Cloudinary by public ID
 const fileDelete = async (publicId, resource_type) => {
     cloudinary.config({
         cloud_name: process.env.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_NAME,

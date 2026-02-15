@@ -15,7 +15,6 @@ import {
 } from "../controller/product.controller.js";
 import { getSoftwarePage } from "../controller/software.controller.js";
 
-// Purpose: Product CRUD, image management, license keys, and stock sync routes
 
 const router = Router();
 

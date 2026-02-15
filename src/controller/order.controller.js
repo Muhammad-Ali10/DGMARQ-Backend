@@ -24,7 +24,6 @@ import { Transaction } from "../models/transaction.model.js";
 import { calculateBuyerHandlingFee, assertValidHandlingFeeConfig } from "../services/handlingFee.service.js";
 import { computeOrderRevenue, computeItemRevenue, logRevenueVerification } from "../services/orderRevenue.service.js";
 
-// Purpose: Creates an order using wallet-only payment with MongoDB transaction
 const createWalletOrder = async (checkoutId, userId, req) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -116,7 +115,7 @@ const createWalletOrder = async (checkoutId, userId, req) => {
           checkoutId: checkout._id,
           orderType: 'purchase',
         },
-        session // Use same session for transaction
+        session
       );
 
       const walletTransactionId = walletResult.transactionId;
@@ -325,8 +324,6 @@ const createWalletOrder = async (checkoutId, userId, req) => {
         payout.lineTotal += item.lineTotal;
         payout.extraFeaturedCommission += item.featuredExtraCommissionAmount || 0;
       }
-
-      // Escrow: schedule seller payout only after payment is captured and order completed (never on failed/pending payment)
       for (const [sellerId, payoutData] of sellerPayouts) {
         const grossAmount = payoutData.lineTotal || (payoutData.amount + payoutData.commission);
         const baseCommissionFromGross = grossAmount * commissionRate;
@@ -356,7 +353,7 @@ const createWalletOrder = async (checkoutId, userId, req) => {
         metadata: {
           checkoutId: checkout._id,
           orderNumber: createdOrder.orderNumber,
-          walletTransactionId: walletTransactionId.toString(), // Store actual ObjectId as string
+          walletTransactionId: walletTransactionId.toString(),
         },
       }], { session });
 
@@ -450,7 +447,7 @@ const createWalletOrder = async (checkoutId, userId, req) => {
         
         try {
           await Checkout.findOneAndUpdate(
-            { _id: checkoutId, status: 'processing' }, // Only rollback if still processing
+            { _id: checkoutId, status: 'processing' },
             { $set: { status: 'pending' } },
             { session: rollbackSession, new: true }
           );
@@ -479,7 +476,6 @@ const createWalletOrder = async (checkoutId, userId, req) => {
   }
 };
 
-// Purpose: Creates an order with PayPal or mixed wallet/PayPal payment (supports guest checkout)
 const createOrder = asyncHandler(async (req, res) => {
   const { checkoutId, paypalOrderId } = req.body;
 
@@ -923,8 +919,6 @@ const createOrder = asyncHandler(async (req, res) => {
       payout.lineTotal += item.lineTotal;
       payout.extraFeaturedCommission += item.featuredExtraCommissionAmount || 0;
     }
-
-    // Escrow: schedule seller payout only after payment captured and order completed (PayPal/Card flow)
     for (const [sellerId, payoutData] of sellerPayouts) {
       const grossAmount = payoutData.lineTotal || (payoutData.amount + payoutData.commission);
       const baseCommissionFromGross = grossAmount * commissionRate;
@@ -1092,7 +1086,6 @@ const createOrder = asyncHandler(async (req, res) => {
   }
 });
 
-// Purpose: Retrieves orders with pagination for users or all orders for admins
 const getOrders = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const userRoles = Array.isArray(req.user.roles) ? req.user.roles : (req.user.role ? [req.user.role] : []);
@@ -1103,7 +1096,6 @@ const getOrders = asyncHandler(async (req, res) => {
   if (!isAdmin) {
     match.userId = new mongoose.Types.ObjectId(userId);
   }
-  // Support comma-separated statuses for e.g. review-eligible orders (completed + PARTIALLY_REFUNDED)
   if (status) {
     match.orderStatus = typeof status === 'string' && status.includes(',')
       ? { $in: status.split(',').map(s => s.trim()).filter(Boolean) }
@@ -1138,7 +1130,6 @@ const getOrders = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves a specific order by ID with populated product and seller details
 const getOrderById = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
   const userId = req.user._id;
@@ -1160,8 +1151,6 @@ const getOrderById = asyncHandler(async (req, res) => {
   const userRoles = Array.isArray(req.user.roles) ? req.user.roles : (req.user.role ? [req.user.role] : []);
   const isAdmin = userRoles.some(r => r && r.toLowerCase() === 'admin');
   const isSeller = userRoles.some(r => r && r.toLowerCase() === 'seller');
-
-  // Resolve order owner id: after populate, userId is an object with _id; otherwise it's an ObjectId
   const orderOwnerId = order.userId
     ? (order.userId._id ? order.userId._id.toString() : order.userId.toString())
     : null;
@@ -1211,7 +1200,6 @@ const getOrderById = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves decrypted license keys/credentials for an order. Supports logged-in (customer/seller/admin) and guest (orderId + guestEmail).
 const getOrderKeys = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
   const guestEmail = req.query.guestEmail ? String(req.query.guestEmail).trim().toLowerCase() : null;
@@ -1228,8 +1216,6 @@ const getOrderKeys = asyncHandler(async (req, res) => {
   if (!order) {
     throw new ApiError(404, 'Order not found');
   }
-
-  // Guest access: no user, require guestEmail and order must be guest with matching email
   if (!user) {
     if (!guestEmail) {
       throw new ApiError(400, 'Guest email is required to view license keys for this order');
@@ -1241,7 +1227,6 @@ const getOrderKeys = asyncHandler(async (req, res) => {
       throw new ApiError(404, 'Order not found');
     }
   } else {
-    // Logged-in: must be customer (own order), admin, or seller (has items in order)
     const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
     const isAdmin = userRoles.some((r) => r && r.toLowerCase() === 'admin');
     const isSeller = userRoles.some((r) => r && r.toLowerCase() === 'seller');
@@ -1264,8 +1249,6 @@ const getOrderKeys = asyncHandler(async (req, res) => {
       throw new ApiError(404, 'Order not found');
     }
   }
-
-  // Only show keys when order is delivered/completed and payment is paid
   if (order.orderStatus !== 'completed' || order.paymentStatus !== 'paid') {
     return res.status(200).json(
       new ApiResponse(200, {
@@ -1320,7 +1303,6 @@ const getOrderKeys = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Cancels an order and creates refund requests for all items
 const cancelOrder = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
   const userId = req.user._id;
@@ -1388,7 +1370,6 @@ const cancelOrder = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Adds items from a previous order to the user's cart for reordering
 const reorder = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
   const userId = req.user._id;
@@ -1454,7 +1435,6 @@ const reorder = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves orders containing products sold by the authenticated seller
 const getSellerOrders = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { page = 1, limit = 10, status } = req.query;
@@ -1467,15 +1447,6 @@ const getSellerOrders = asyncHandler(async (req, res) => {
   }
 
   const sellerObjectId = new mongoose.Types.ObjectId(seller._id);
-  
-  logger.debug('[SELLER ORDERS] Query params', {
-    sellerId: seller._id,
-    sellerObjectId: sellerObjectId.toString(),
-    status,
-    page,
-    limit,
-  });
-  
   const match = {
     paymentStatus: "paid",
     items: {
@@ -1488,9 +1459,6 @@ const getSellerOrders = asyncHandler(async (req, res) => {
   if (status) {
     match.orderStatus = status;
   }
-  
-  logger.debug('[SELLER ORDERS] Match query', JSON.stringify(match, null, 2));
-
   const orders = await Order.aggregate([
     { $match: match },
     { $sort: { createdAt: -1 } },
@@ -1569,9 +1537,6 @@ const getSellerOrders = asyncHandler(async (req, res) => {
       }
     },
   ]);
-
-  logger.debug('[SELLER ORDERS] Found orders', { count: orders.length });
-
   const total = orders.length;
   const startIndex = (parseInt(page) - 1) * parseInt(limit);
   const endIndex = parseInt(page) * parseInt(limit);
@@ -1592,7 +1557,7 @@ const getSellerOrders = asyncHandler(async (req, res) => {
 
 export {
   createOrder,
-  createWalletOrder, // Export wallet-only order creation (no PayPal SDK)
+  createWalletOrder,
   getOrders,
   getOrderById,
   getOrderKeys,

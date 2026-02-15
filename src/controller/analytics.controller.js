@@ -12,7 +12,7 @@ import { Subscription } from "../models/subscription.model.js";
 import { UserBehavior } from "../models/userBehavior.model.js";
 import { User } from "../models/user.model.js";
 
-// Retrieves product analytics with real-time sales and wishlist counts
+/** Product analytics: sales, views, wishlist counts. */
 const getProductAnalytics = asyncHandler(async (req, res) => {
   const { productId } = req.params;
 
@@ -59,7 +59,7 @@ const getProductAnalytics = asyncHandler(async (req, res) => {
   );
 });
 
-// Increments product view count in analytics
+/** Increments product view count. */
 const incrementProductViews = asyncHandler(async (req, res) => {
   const { productId } = req.params;
 
@@ -81,7 +81,7 @@ const incrementProductViews = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves category analytics with calculated sales data
+/** Category analytics with calculated sales data. */
 const getCategoryAnalytics = asyncHandler(async (req, res) => {
   const { categoryId } = req.params;
 
@@ -180,22 +180,18 @@ const getCategoryAnalytics = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves top products by sales for admin dashboard
+/** Top products by sales (admin). */
 const getTopProducts = asyncHandler(async (req, res) => {
   if (!req.user.roles?.includes("admin")) {
     throw new ApiError(403, "Only admins can view top products");
   }
 
   const { limit = 10 } = req.query;
-
-  // Get top products from Analytics collection
   const analyticsProducts = await Analytics.find({ salesCount: { $gt: 0 } })
     .populate("productId", "name images price")
     .sort({ salesCount: -1 })
     .limit(parseInt(limit))
     .lean();
-
-  // Also get top products from actual order data (non-refunded units and revenue only)
   const orderBasedProducts = await Order.aggregate([
     {
       $match: {
@@ -240,8 +236,6 @@ const getTopProducts = asyncHandler(async (req, res) => {
       $limit: parseInt(limit),
     },
   ]);
-
-  // Format response consistently
   const formattedProducts = orderBasedProducts.map((item) => ({
     _id: item.productId,
     productId: { _id: item.productId, name: item.name, images: item.images, price: item.price },
@@ -256,7 +250,7 @@ const getTopProducts = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves analytics dashboard with aggregated metrics for admin
+/** Analytics dashboard with aggregated metrics (admin). */
 const getAnalyticsDashboard = asyncHandler(async (req, res) => {
   if (!req.user.roles?.includes("admin")) {
     throw new ApiError(403, "Only admins can view analytics dashboard");
@@ -269,21 +263,17 @@ const getAnalyticsDashboard = asyncHandler(async (req, res) => {
     topProducts,
     categoryAnalytics,
   ] = await Promise.all([
-    // Get sales count from actual orders (non-refunded units only)
     Order.aggregate([
       { $match: { paymentStatus: 'paid' } },
       { $unwind: '$items' },
       { $group: { _id: null, total: { $sum: { $subtract: ['$items.qty', { $ifNull: ['$items.refundedKeysCount', 0] }] } } } },
     ]),
-    // Get views from Analytics collection
     Analytics.aggregate([
       { $group: { _id: null, total: { $sum: "$viewsCount" } } },
     ]),
-    // Get wishlists from Analytics collection
     Analytics.aggregate([
       { $group: { _id: null, total: { $sum: "$wishlistCount" } } },
     ]),
-    // Get top products from actual order data (non-refunded units only)
     Order.aggregate([
       {
         $match: {
@@ -351,7 +341,7 @@ const getAnalyticsDashboard = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves seller's monthly analytics including sales, earnings, and top products
+/** Seller monthly analytics: sales, earnings, top products. */
 const getSellerMonthlyAnalytics = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { month, year, startDate: startDateParam, endDate: endDateParam } = req.query;
@@ -360,22 +350,17 @@ const getSellerMonthlyAnalytics = asyncHandler(async (req, res) => {
   if (!seller) {
     throw new ApiError(404, "Seller account not found");
   }
-
-  // Support both month/year and date range filters
   let startDate, endDate;
   if (startDateParam && endDateParam) {
     startDate = new Date(startDateParam);
     endDate = new Date(endDateParam);
-    endDate.setHours(23, 59, 59, 999); // End of day
+    endDate.setHours(23, 59, 59, 999);
   } else {
-    // Default to current month if no dates provided
     const currentYear = year ? parseInt(year) : new Date().getFullYear();
     const currentMonth = month ? parseInt(month) : new Date().getMonth() + 1;
     startDate = new Date(currentYear, currentMonth - 1, 1);
     endDate = new Date(currentYear, currentMonth, 0, 23, 59, 59);
   }
-
-  // Get orders for seller's products in this month
   const orders = await Order.aggregate([
     {
       $match: {
@@ -485,20 +470,14 @@ const getSellerMonthlyAnalytics = asyncHandler(async (req, res) => {
     sellerEarnings: 0,
     totalOrders: 0,
   };
-
-  // Get product counts for the seller
   const totalProducts = await Product.countDocuments({ sellerId: seller._id });
   const activeProducts = await Product.countDocuments({ 
     sellerId: seller._id, 
     status: 'active' 
   });
-
-  // Calculate average order value
   const averageOrderValue = stats.totalSales > 0 
     ? stats.totalRevenue / stats.totalSales 
     : 0;
-
-  // Get all-time totals for comparison
   const allTimeStats = await Order.aggregate([
     {
       $match: {
@@ -546,21 +525,17 @@ const getSellerMonthlyAnalytics = asyncHandler(async (req, res) => {
         startDate,
         endDate,
       },
-      // Period-specific stats
       totalRevenue: stats.totalRevenue,
       totalSales: stats.totalSales,
       totalOrders: stats.totalOrders || 0,
       netEarnings: stats.sellerEarnings,
       totalCommission: stats.totalCommission,
       averageOrderValue,
-      // All-time totals
       allTimeRevenue: allTime.totalRevenue,
       allTimeSales: allTime.totalSales,
       allTimeEarnings: allTime.totalEarnings,
-      // Product stats
       totalProducts,
       activeProducts,
-      // Additional data
       sales: {
         total: stats.totalSales,
         revenue: stats.totalRevenue,
@@ -576,7 +551,7 @@ const getSellerMonthlyAnalytics = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves admin monthly analytics including platform revenue, commission, and user metrics
+/** Admin monthly analytics: platform revenue, commission, user metrics. */
 const getAdminMonthlyAnalytics = asyncHandler(async (req, res) => {
   if (!req.user.roles?.includes('admin')) {
     throw new ApiError(403, "Only admins can view admin analytics");
@@ -702,7 +677,7 @@ const getAdminMonthlyAnalytics = asyncHandler(async (req, res) => {
   );
 });
 
-// Creates custom analytics reports with flexible filtering options
+/** Custom analytics report with flexible filtering. */
 const createCustomReport = asyncHandler(async (req, res) => {
   const { reportType, filters, dateRange } = req.body;
 
@@ -766,7 +741,7 @@ const createCustomReport = asyncHandler(async (req, res) => {
   );
 });
 
-// Exports analytics report as CSV file
+/** Exports analytics report as CSV. */
 const exportReportCSV = asyncHandler(async (req, res) => {
   const { reportType, dateRange } = req.query;
 
@@ -814,16 +789,13 @@ const exportReportCSV = asyncHandler(async (req, res) => {
     .send(csv);
 });
 
-// Exports analytics report as PDF (returns JSON if pdfkit not available)
+/** Exports analytics report as PDF (returns JSON if pdfkit not available). */
 const exportReportPDF = asyncHandler(async (req, res) => {
   const { reportType, dateRange } = req.query;
 
   if (!reportType) {
     throw new ApiError(400, "Report type is required");
   }
-
-  // For now, return JSON. Install pdfkit for PDF generation:
-  // npm install pdfkit
   const match = {};
   if (dateRange?.startDate) {
     match.createdAt = { $gte: new Date(dateRange.startDate) };
@@ -851,7 +823,7 @@ const exportReportPDF = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves real-time analytics counters for users, orders, products, and revenue
+/** Real-time counters: users, orders, products, revenue. */
 const getRealTimeCounters = asyncHandler(async (req, res) => {
   const [totalUsers, activeUsers, totalOrders, totalProducts, totalRevenue] = await Promise.all([
     User.countDocuments(),
@@ -876,7 +848,7 @@ const getRealTimeCounters = asyncHandler(async (req, res) => {
   );
 });
 
-// Tracks user behavior events for analytics
+/** Tracks user behavior event. */
 const trackUserBehavior = asyncHandler(async (req, res) => {
   const { eventType, entityType, entityId, metadata } = req.body;
   const userId = req.user?._id || null;
@@ -904,7 +876,7 @@ const trackUserBehavior = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves user behavior analytics with optional filtering by date, event type, and user
+/** User behavior analytics with optional filters (date, event type, user). */
 const getUserBehaviorAnalytics = asyncHandler(async (req, res) => {
   const { startDate, endDate, eventType, userId } = req.query;
 

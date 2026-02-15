@@ -4,7 +4,6 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { Wishlist } from "../models/wishlist.model.js";
 
-// Purpose: Adds a product to the user's wishlist
 const addToWishlist = asyncHandler(async (req, res) => {
   const { productId } = req.body;
   const userId = req.user._id;
@@ -37,7 +36,6 @@ const addToWishlist = asyncHandler(async (req, res) => {
 
 
 
-// Purpose: Retrieves the user's wishlist with populated product details
 const getWishlist = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
@@ -56,7 +54,6 @@ const getWishlist = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, { ...wishlist, products: validProducts }, "Wishlist fetched successfully"));
 });
 
-// Purpose: Removes a product from the user's wishlist
 const removeFromWishlist = asyncHandler(async (req, res) => {
   const { productId } = req.body;
   const userId = req.user._id;
@@ -84,7 +81,6 @@ const removeFromWishlist = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, updatedWishlist.products, "Product removed from wishlist"));
 });
 
-// Purpose: Clears all products from the user's wishlist
 const clearWishlist = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 

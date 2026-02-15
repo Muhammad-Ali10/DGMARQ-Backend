@@ -9,5 +9,4 @@ const schema = new mongoose.Schema(
 )
 schema.plugin(mongooseAggregatePaginate);
 
-// Purpose: Stores device types for product compatibility classification
 export const Device = mongoose.model("Device", schema)

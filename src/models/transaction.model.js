@@ -60,6 +60,5 @@ transactionSchema.index({ orderId: 1 });
 transactionSchema.index({ payoutId: 1 });
 transactionSchema.index({ status: 1, createdAt: -1 });
 
-// Purpose: Represents financial transactions including payments, payouts, refunds, and fees
 export const Transaction = mongoose.model("Transaction", transactionSchema);
 

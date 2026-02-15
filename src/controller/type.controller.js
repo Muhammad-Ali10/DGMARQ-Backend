@@ -4,7 +4,6 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import mongoose from "mongoose";
 
-// Purpose: Creates a new product type with duplicate name checking
 const createType = asyncHandler(async (req, res) => {
   const { name } = req.body;
 
@@ -20,7 +19,6 @@ const createType = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, CreatedType, "Product type created successfully"));
 });
 
-// Purpose: Updates a product type by ID with duplicate name validation
 const updateType = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { name } = req.body;
@@ -46,7 +44,6 @@ const updateType = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, updatedType, "Product type updated successfully"));
 });
 
-// Purpose: Retrieves all product types with pagination and optional search filtering
 const getAllTypes = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, search = "" } = req.query;
 
@@ -72,7 +69,6 @@ const getAllTypes = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, result, "Product types fetched successfully"));
 });
 
-// Purpose: Deletes a product type by ID
 const deleteType = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -88,7 +84,6 @@ const deleteType = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, null, "Product type deleted successfully"));
 });
 
-// Purpose: Toggles the active status of a product type
 const toggleTypeStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
 

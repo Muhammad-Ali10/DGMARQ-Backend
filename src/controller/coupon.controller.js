@@ -7,7 +7,7 @@ import { Order } from "../models/order.model.js";
 import { auditLog } from "../services/audit.service.js";
 import { COUPON_TYPE } from "../constants.js";
 
-// Creates a new coupon with validation and duplicate checking (admin only)
+/** Creates coupon with validation (admin only). */
 const createCoupon = asyncHandler(async (req, res) => {
   if (!req.user.roles?.includes("admin")) {
     throw new ApiError(403, "Only admins can create coupons");
@@ -77,7 +77,7 @@ const createCoupon = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves all coupons with optional filtering and pagination (admin only)
+/** Retrieves all coupons with pagination (admin only). */
 const getAllCoupons = asyncHandler(async (req, res) => {
   if (!req.user.roles?.includes("admin")) {
     throw new ApiError(403, "Only admins can view all coupons");
@@ -111,7 +111,7 @@ const getAllCoupons = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves all active and valid coupons for public display
+/** Retrieves active valid coupons for public display. */
 const getActiveCoupons = asyncHandler(async (req, res) => {
   const now = new Date();
 
@@ -135,9 +135,8 @@ const getActiveCoupons = asyncHandler(async (req, res) => {
   );
 });
 
-// Validates a coupon code and calculates discount amount
+/** Validates coupon code and returns discount amount. */
 const validateCoupon = asyncHandler(async (req, res) => {
-  // Accept both 'code' and 'couponCode' for backward compatibility
   const code = req.body.code || req.body.couponCode;
   const { orderAmount } = req.body;
 
@@ -193,7 +192,6 @@ const validateCoupon = asyncHandler(async (req, res) => {
   );
 });
 
-// Retrieves a single coupon by ID with creator details (admin only)
 const getCouponById = asyncHandler(async (req, res) => {
   if (!req.user.roles?.includes("admin")) {
     throw new ApiError(403, "Only admins can view coupon details");
@@ -217,7 +215,6 @@ const getCouponById = asyncHandler(async (req, res) => {
   );
 });
 
-// Updates coupon details with audit logging (admin only)
 const updateCoupon = asyncHandler(async (req, res) => {
   if (!req.user.roles?.includes("admin")) {
     throw new ApiError(403, "Only admins can update coupons");
@@ -277,7 +274,6 @@ const updateCoupon = asyncHandler(async (req, res) => {
   );
 });
 
-// Deletes a coupon with audit logging (admin only)
 const deleteCoupon = asyncHandler(async (req, res) => {
   if (!req.user.roles?.includes("admin")) {
     throw new ApiError(403, "Only admins can delete coupons");

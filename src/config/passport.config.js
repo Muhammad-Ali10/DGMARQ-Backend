@@ -4,12 +4,10 @@ import { Strategy as FacebookStrategy } from 'passport-facebook';
 import { User } from '../models/user.model.js';
 import { generateRefreshTokenAndAccessToken } from '../controller/user.controller.js';
 
-// Purpose: Serialize user ID to session for authentication persistence
 passport.serializeUser((user, done) => {
   done(null, user._id);
 });
 
-// Purpose: Deserialize user from session by ID
 passport.deserializeUser(async (id, done) => {
   try {
     const user = await User.findById(id).select('-password -refreshToken');
@@ -19,7 +17,6 @@ passport.deserializeUser(async (id, done) => {
   }
 });
 
-// Purpose: Configure Google OAuth strategy for user authentication
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   const port = process.env.PORT || 5000;
   let baseUrl = process.env.BASE_URL;
@@ -76,7 +73,6 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   );
 }
 
-// Purpose: Configure Facebook OAuth strategy for user authentication
 if (process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_SECRET) {
   const port = process.env.PORT || 5000;
   let baseUrl = process.env.BASE_URL;

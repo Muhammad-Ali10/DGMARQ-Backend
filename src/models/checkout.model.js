@@ -65,5 +65,4 @@ checkoutSchema.pre("save", function (next) {
   next();
 });
 
-// Purpose: Manages checkout sessions with payment details, discounts, and order totals
 export const Checkout = mongoose.model("Checkout", checkoutSchema);

@@ -5,7 +5,6 @@ import { ApiError } from '../utils/ApiError.js';
 import { logger } from '../utils/logger.js';
 import mongoose from 'mongoose';
 
-// Purpose: Assigns an available license key to an order for a specific product
 export const assignKeyToOrder = async (productId, orderId, existingSession = null) => {
   const useExistingSession = existingSession !== null;
   const session = existingSession || await mongoose.startSession();
@@ -75,7 +74,6 @@ export const assignKeyToOrder = async (productId, orderId, existingSession = nul
   }
 };
 
-// Purpose: Bulk uploads license keys for a product with duplicate detection
 export const bulkUploadKeys = async (productId, keys, sellerId) => {
   const product = await Product.findById(productId);
   if (!product) {
@@ -202,7 +200,6 @@ export const bulkUploadKeys = async (productId, keys, sellerId) => {
   }
 };
 
-// Purpose: Retrieves and decrypts a license key by its ID
 export const getDecryptedKey = async (keyId) => {
   const licenseKeyDoc = await LicenseKey.findOne({
     'keys._id': new mongoose.Types.ObjectId(keyId),
@@ -251,7 +248,6 @@ export const getDecryptedKey = async (keyId) => {
   }
 };
 
-// Purpose: Synchronizes product stock count with available license keys
 export const syncProductStock = async (productId) => {
   const licenseKeyDoc = await LicenseKey.findOne({
     productId: new mongoose.Types.ObjectId(productId),
@@ -275,7 +271,6 @@ export const syncProductStock = async (productId) => {
   return availableCount;
 };
 
-// Purpose: Checks if a product has enough available keys for the requested quantity
 export const checkKeyAvailability = async (productId, requestedQty = 1) => {
   const licenseKeyDoc = await LicenseKey.findOne({
     productId: new mongoose.Types.ObjectId(productId),
@@ -307,7 +302,6 @@ export const checkKeyAvailability = async (productId, requestedQty = 1) => {
   };
 };
 
-// Purpose: Validates key format based on platform-specific patterns
 export const validateKeyFormat = (keyData, keyType = 'other') => {
   if (!keyData || typeof keyData !== 'string') {
     return { valid: false, error: 'Key must be a non-empty string' };
@@ -339,7 +333,6 @@ export const validateKeyFormat = (keyData, keyType = 'other') => {
   return { valid: true };
 };
 
-// Purpose: Retrieves paginated list of keys for a product with seller verification
 export const getProductKeys = async (productId, sellerId, page = 1, limit = 50) => {
   const product = await Product.findById(productId);
   if (!product) {

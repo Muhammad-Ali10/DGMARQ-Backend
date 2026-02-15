@@ -13,9 +13,8 @@ import { PAYOUT_HOLD_DAYS } from '../constants.js';
 import { logger } from '../utils/logger.js';
 import mongoose from 'mongoose';
 
-const DEFAULT_COMMISSION_RATE = 0.1; // 10% default
+const DEFAULT_COMMISSION_RATE = 0.1;
 
-// Purpose: Payout is allowed only if ALL are true (strict eligibility). PayPal OAuth mandatory; email-only invalid.
 export const isPayoutEligible = (seller) => {
   if (!seller) return false;
   return (
@@ -27,18 +26,16 @@ export const isPayoutEligible = (seller) => {
   );
 };
 
-// Purpose: Log every payout attempt for audit (sellerId, amount, status, failureReason)
 const logPayoutAttempt = (sellerId, payoutAmount, payoutStatus, failureReason = null) => {
   const payload = {
     sellerId: sellerId?.toString?.(),
     payoutAmount,
-    payoutStatus, // 'success' | 'blocked' | 'failed'
+    payoutStatus,
     failureReason: failureReason || undefined,
   };
   logger.info('[PAYOUT_ATTEMPT]', payload);
 };
 
-// Purpose: Retrieves commission rate from platform settings or returns default value
 export const getCommissionRate = async () => {
   try {
     const setting = await PlatformSettings.findOne({ key: 'commission_rate' });
@@ -51,7 +48,6 @@ export const getCommissionRate = async () => {
   return DEFAULT_COMMISSION_RATE;
 };
 
-// Purpose: Calculates commission amount based on current or overridden commission rate
 export const calculateCommission = async (totalAmount, commissionRateOverride = null) => {
   let commissionRate = commissionRateOverride;
   if (typeof commissionRate !== 'number' || commissionRate < 0) {
@@ -60,15 +56,13 @@ export const calculateCommission = async (totalAmount, commissionRateOverride = 
   return totalAmount * commissionRate;
 };
 
-// Purpose: Schedules a payout for seller with 15-day hold period (escrow model).
-// Only call after payment is captured and order is completed; failed/pending payments must NOT trigger this.
+/** Schedules seller payout. Call only after payment captured and order completed. */
 export const schedulePayout = async (payoutData, session = null) => {
   const { orderId, sellerId, amount, orderCompletedAt, commissionRateOverride = null } = payoutData;
 
   const completionDate = orderCompletedAt ? new Date(orderCompletedAt) : new Date();
   const holdDays = (typeof PAYOUT_HOLD_DAYS === 'number' && PAYOUT_HOLD_DAYS >= 0) ? PAYOUT_HOLD_DAYS : 15;
   const holdUntil = new Date(completionDate.getTime() + holdDays * 24 * 60 * 60 * 1000);
-  // Payout amount excludes platform commission; buyer handling fees are order-level and not part of seller line total
   const grossAmount = amount;
   const commissionAmount = await calculateCommission(grossAmount, commissionRateOverride);
   const netAmount = grossAmount - commissionAmount;
@@ -91,7 +85,6 @@ export const schedulePayout = async (payoutData, session = null) => {
   return await Payout.create(payoutDataToSave);
 };
 
-// Purpose: Adjust existing scheduled payout for partial refund (no new payout record). Used when payout is still within hold period.
 export const adjustPayoutForRefund = async (orderId, sellerId, deductGross, deductCommission, deductNet, refundedLicenseKeyIds = [], session = null) => {
   const orderIdObj = mongoose.Types.ObjectId.isValid(orderId) ? new mongoose.Types.ObjectId(orderId) : orderId;
   const sellerIdObj = mongoose.Types.ObjectId.isValid(sellerId) ? new mongoose.Types.ObjectId(sellerId) : sellerId;
@@ -118,7 +111,6 @@ export const adjustPayoutForRefund = async (orderId, sellerId, deductGross, dedu
     refundedLicenseKeyIds: mergedKeyIds,
   };
   payout.notes = (payout.notes || '') ? `${payout.notes}; Adjusted for refund.` : 'Adjusted for partial refund.';
-  // Full refund (or multiple partials) can reduce net to zero: block payout so cron never releases it
   if (payout.netAmount <= 0) {
     payout.status = 'blocked';
     payout.blockReason = payout.netAmount === 0
@@ -134,7 +126,6 @@ export const adjustPayoutForRefund = async (orderId, sellerId, deductGross, dedu
   return payout;
 };
 
-// Purpose: Block all pending/hold payouts for an order (e.g. when order is fully refunded). Ensures no release until dispute/refund resolved.
 export const blockPayoutsForOrder = async (orderId, reason = 'Order fully refunded – payout cancelled', session = null) => {
   const orderIdObj = mongoose.Types.ObjectId.isValid(orderId) ? new mongoose.Types.ObjectId(orderId) : orderId;
   const result = await Payout.updateMany(
@@ -158,8 +149,7 @@ export const blockPayoutsForOrder = async (orderId, reason = 'Order fully refund
   return result;
 };
 
-// Purpose: Processes scheduled payouts that are ready for release after hold period. Includes blocked payouts for re-check (auto-process when fixed).
-// Enforces: payout only when order paid+completed, no open dispute, no refunded order.
+/** Processes scheduled payouts. Order must be paid+completed; no open dispute or refund. */
 export const processScheduledPayouts = async () => {
   const now = new Date();
 
@@ -179,7 +169,6 @@ export const processScheduledPayouts = async () => {
     const payoutAmount = parseFloat(payout.netAmount.toFixed(2));
     try {
       let seller = payout.sellerId;
-      // Re-check seller status at payout time (never release if seller became blocked or PayPal invalid)
       seller = await Seller.findById(seller._id);
       if (!seller) {
         logPayoutAttempt(payout.sellerId?.toString?.(), payoutAmount, 'blocked', 'Seller not found');
@@ -193,7 +182,6 @@ export const processScheduledPayouts = async () => {
 
       const orderId = payout.orderId?._id || payout.orderId;
       const order = await Order.findById(orderId).select('paymentStatus orderStatus').lean();
-      // Status sync: do not release if order is refunded or not in a valid paid state
       if (!order || order.paymentStatus !== 'paid') {
         const blockReason = !order ? 'Order not found' : order.paymentStatus === 'refunded' ? 'Order fully refunded – payout blocked' : `Order payment status: ${order.paymentStatus}`;
         logPayoutAttempt(payout.sellerId?.toString?.(), payoutAmount, 'blocked', blockReason);
@@ -205,8 +193,6 @@ export const processScheduledPayouts = async () => {
         results.failed++;
         continue;
       }
-
-      // Dispute handling: block payout if order has an open refund request (no release until dispute resolved)
       const openRefund = await ReturnRefund.findOne({
         orderId,
         status: { $in: ['PENDING', 'SELLER_REVIEW', 'SELLER_APPROVED', 'ADMIN_REVIEW', 'ADMIN_APPROVED', 'ON_HOLD_INSUFFICIENT_FUNDS', 'WAITING_FOR_MANUAL_REFUND'] },
@@ -222,8 +208,6 @@ export const processScheduledPayouts = async () => {
         results.failed++;
         continue;
       }
-
-      // Blocked payouts: re-check eligibility and that order has no refunded items; if eligible and no refunds, set to pending and process (funds never removed)
       if (payout.status === 'blocked') {
         if (!isPayoutEligible(seller)) {
           results.failed++;
@@ -333,9 +317,6 @@ export const processScheduledPayouts = async () => {
         results.failed++;
         continue;
       }
-
-      // Order already validated above (paymentStatus === 'paid', no open dispute)
-
       if (payout.status === 'released' && payout.paypalBatchId) {
         logger.warn(`Payout ${payout._id} already released (idempotent)`, {
           payoutId: payout._id,
@@ -454,10 +435,9 @@ export const processScheduledPayouts = async () => {
       const shouldRetry = !isAccountError && payout.retryCount < (payout.maxRetries || 3);
       
       if (shouldRetry) {
-        // Increment retry count and schedule retry
         payout.retryCount = (payout.retryCount || 0) + 1;
         payout.lastRetryAt = new Date();
-        payout.status = 'pending'; // Keep as pending for retry
+        payout.status = 'pending';
         payout.notes = `Processing failed (attempt ${payout.retryCount}/${payout.maxRetries || 3}): ${errorMessage}. Will retry.`;
         await payout.save();
         
@@ -468,7 +448,6 @@ export const processScheduledPayouts = async () => {
           retryCount: payout.retryCount,
         });
       } else {
-        // Max retries reached or account error, mark as failed
         payout.status = 'failed';
         payout.notes = isAccountError 
           ? `Processing failed: ${errorMessage}`
@@ -504,7 +483,6 @@ export const processScheduledPayouts = async () => {
   return results;
 };
 
-// Purpose: Calculates seller's payout balance including pending, available, and paid amounts
 export const getSellerBalance = async (sellerId) => {
   const now = new Date();
 
@@ -514,7 +492,7 @@ export const getSellerBalance = async (sellerId) => {
         sellerId: new mongoose.Types.ObjectId(sellerId),
         status: 'pending',
         requestType: 'scheduled',
-        holdUntil: { $lte: now }, // Only payouts past hold period
+        holdUntil: { $lte: now },
       },
     },
     {
@@ -624,7 +602,6 @@ export const getSellerBalance = async (sellerId) => {
   };
 };
 
-// Purpose: Retrieves seller's payout history with pagination
 export const getSellerPayouts = async (sellerId, page = 1, limit = 20) => {
   const skip = (page - 1) * limit;
 

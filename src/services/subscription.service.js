@@ -6,7 +6,6 @@ import mongoose from 'mongoose';
 
 const SUBSCRIPTION_DISCOUNT_PERCENTAGE = 2;
 
-// Purpose: Checks if user has an active subscription
 export const hasActiveSubscription = async (userId) => {
   const subscription = await Subscription.findOne({
     userId: new mongoose.Types.ObjectId(userId),
@@ -20,7 +19,6 @@ export const hasActiveSubscription = async (userId) => {
   return !!subscription;
 };
 
-// Purpose: Retrieves user's active subscription details
 export const getUserSubscription = async (userId) => {
   return await Subscription.findOne({
     userId: new mongoose.Types.ObjectId(userId),
@@ -32,12 +30,10 @@ export const getUserSubscription = async (userId) => {
   });
 };
 
-// Purpose: Calculates subscription discount amount based on subtotal
 export const calculateSubscriptionDiscount = (subtotal) => {
   return (subtotal * SUBSCRIPTION_DISCOUNT_PERCENTAGE) / 100;
 };
 
-// Purpose: Creates a new subscription with PayPal billing for a user
 export const createSubscription = async (userId, planName = 'DGMARQ+', paypalSubscriptionId = null) => {
   const startDate = new Date();
   const endDate = new Date();
@@ -56,7 +52,6 @@ export const createSubscription = async (userId, planName = 'DGMARQ+', paypalSub
   return subscription;
 };
 
-// Purpose: Creates subscription from PayPal subscription ID after approval
 export const createSubscriptionFromPayPal = async (userId, paypalSubscriptionId) => {
   try {
     const paypalSub = await getPayPalSubscription(paypalSubscriptionId);
@@ -87,7 +82,6 @@ export const createSubscriptionFromPayPal = async (userId, paypalSubscriptionId)
   }
 };
 
-// Purpose: Cancels user's subscription and PayPal billing if applicable
 export const cancelSubscription = async (userId, reason = 'User requested cancellation') => {
   const subscription = await Subscription.findOne({
     userId: new mongoose.Types.ObjectId(userId),
@@ -114,7 +108,6 @@ export const cancelSubscription = async (userId, reason = 'User requested cancel
   return subscription;
 };
 
-// Purpose: Renews subscription by extending end date by specified duration
 export const renewSubscription = async (userId, durationMonths = 1) => {
   const subscription = await Subscription.findOne({
     userId: new mongoose.Types.ObjectId(userId),
@@ -136,7 +129,6 @@ export const renewSubscription = async (userId, durationMonths = 1) => {
   return subscription;
 };
 
-// Purpose: Handles subscription payment failure with grace period
 export const handleSubscriptionPaymentFailure = async (subscriptionId) => {
   const subscription = await Subscription.findById(subscriptionId);
 
@@ -150,7 +142,6 @@ export const handleSubscriptionPaymentFailure = async (subscriptionId) => {
   return subscription;
 };
 
-// Purpose: Updates expired subscriptions to expired status
 export const updateExpiredSubscriptions = async () => {
   const now = new Date();
   const expiredSubscriptions = await Subscription.find({

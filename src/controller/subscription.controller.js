@@ -11,10 +11,9 @@ import {
   cancelSubscription,
   renewSubscription,
 } from "../services/subscription.service.js";
-import { createPayPalSubscription, createPayPalSubscriptionPlan } from "../services/payment.service.js";
+import { createPayPalSubscription, validatePlanIdFormat } from "../services/payment.service.js";
 import { authorizeRoles } from "../middlerwares/authmiddlerware.js";
 
-// Purpose: Retrieves user's subscription status
 const getMySubscription = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
@@ -34,7 +33,6 @@ const getMySubscription = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Initiates PayPal subscription for the user
 const subscribe = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
@@ -43,24 +41,19 @@ const subscribe = asyncHandler(async (req, res) => {
     throw new ApiError(400, "You already have an active subscription");
   }
 
-  const planId = process.env.PAYPAL_SUBSCRIPTION_PLAN_ID;
+  const planId = (process.env.PAYPAL_SUBSCRIPTION_PLAN_ID || '').trim();
   if (!planId) {
-    const plan = await createPayPalSubscriptionPlan({
-      name: 'DGMARQ+ Monthly',
-      description: 'Monthly subscription to DGMARQ+ with 2% discount on all purchases',
-      price: parseFloat(process.env.SUBSCRIPTION_PRICE || '9.99'),
-      currency: 'EUR',
-    });
+    throw new ApiError(503, "Subscription is not configured. Set PAYPAL_SUBSCRIPTION_PLAN_ID (billing plan P-xxx) in server environment.");
+  }
+  const formatCheck = validatePlanIdFormat(planId);
+  if (!formatCheck.valid) {
+    throw new ApiError(400, formatCheck.error);
   }
 
   const returnUrl = `${process.env.FRONTEND_URL}/subscription/success`;
   const cancelUrl = `${process.env.FRONTEND_URL}/subscription/cancel`;
-  
-  const paypalSubscription = await createPayPalSubscription(
-    planId || process.env.PAYPAL_SUBSCRIPTION_PLAN_ID,
-    returnUrl,
-    cancelUrl
-  );
+
+  const paypalSubscription = await createPayPalSubscription(planId, returnUrl, cancelUrl);
 
   const approvalLink = paypalSubscription.links?.find(link => link.rel === 'approve');
 
@@ -74,7 +67,6 @@ const subscribe = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Confirms and activates subscription after PayPal approval
 const confirmSubscription = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { subscriptionId } = req.body;
@@ -90,7 +82,6 @@ const confirmSubscription = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Cancels user's active subscription
 const cancelMySubscription = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
@@ -105,7 +96,6 @@ const cancelMySubscription = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Renews user's subscription for specified duration
 const renewMySubscription = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { durationMonths = 1 } = req.body;
@@ -117,7 +107,6 @@ const renewMySubscription = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all subscriptions with pagination and optional status filtering for admin
 const getAllSubscriptions = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, status } = req.query;
 
@@ -147,7 +136,6 @@ const getAllSubscriptions = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves subscription statistics for admin
 const getSubscriptionStats = asyncHandler(async (req, res) => {
   const [active, expired, cancelled, total] = await Promise.all([
     Subscription.countDocuments({ status: 'active' }),
@@ -166,7 +154,6 @@ const getSubscriptionStats = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves subscription plan details for public endpoint
 const getSubscriptionPlans = asyncHandler(async (req, res) => {
   const subscriptionPrice = parseFloat(process.env.SUBSCRIPTION_PRICE || '9.99');
   const discountPercentage = 2;

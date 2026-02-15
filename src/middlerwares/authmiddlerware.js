@@ -3,7 +3,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { User } from "../models/user.model.js"
 
-// Purpose: Verifies JWT token and attaches authenticated user to request
+/** Verifies JWT, attaches user to req. Requires valid token. */
 const verifyJWT = asyncHandler(async (req, _, next) => {
 
     try {
@@ -33,10 +33,9 @@ const verifyJWT = asyncHandler(async (req, _, next) => {
         throw new ApiError(401, error.message || "You are not authorized to access this resource");
     }
 
-})
+});
 
-
-// Purpose: Restricts access to users with specified roles
+/** Restricts access to given roles. Use after verifyJWT. */
 const authorizeRoles = (...roles) => {
     return (req, _, next) => {
         const userRoles = Array.isArray(req.user.roles) ? req.user.roles : [req.user.role];
@@ -48,7 +47,7 @@ const authorizeRoles = (...roles) => {
     };
 };
 
-// Purpose: Optional JWT verification that sets user to null if no valid token
+/** Optional JWT: attaches user if valid token, otherwise req.user = null. */
 const optionalJWT = asyncHandler(async (req, _, next) => {
     try {
         const token = req.cookies.accessToken || req.headers.authorization?.split(" ")[1];
@@ -80,7 +79,7 @@ const optionalJWT = asyncHandler(async (req, _, next) => {
     }
 });
 
-// Purpose: JWT verification for logout that allows expired tokens to proceed
+/** Verifies JWT for logout; accepts expired tokens to invalidate session. */
 const verifyJWTForLogout = asyncHandler(async (req, _, next) => {
     try {
         const token = req.cookies.accessToken || req.headers.authorization?.split(" ")[1];

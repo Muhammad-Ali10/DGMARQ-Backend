@@ -7,7 +7,6 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { fileUploader } from "../utils/cloudinary.js";
 
 
-// Purpose: Creates a new subcategory with validation, parent category verification, and image upload
 const createSubCategory = asyncHandler(async (req, res) => {
 
     const { name, slug, parentCategory, description } = req.body;
@@ -72,7 +71,6 @@ const createSubCategory = asyncHandler(async (req, res) => {
 })
 
 
-// Purpose: Retrieves a single subcategory by ID with populated parent category
 const getSubCategoryById = asyncHandler(async (req, res) => {
 
     const { subCategoryId } = req.params;
@@ -91,7 +89,6 @@ const getSubCategoryById = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, subCategory, "Subcategory fetched successfully"));
 })
 
-// Purpose: Retrieves a subcategory by category and subcategory slugs for frontend routing
 const getSubCategoryBySlug = asyncHandler(async (req, res) => {
     const { categorySlug, subcategorySlug } = req.params;
 
@@ -117,7 +114,6 @@ const getSubCategoryBySlug = asyncHandler(async (req, res) => {
 })
 
 
-// Purpose: Updates subcategory details with validation and duplicate checking
 const updateSubCategory = asyncHandler(async (req, res) => {
 
     const { subCategoryId } = req.params;
@@ -189,7 +185,6 @@ const updateSubCategory = asyncHandler(async (req, res) => {
 
 })
 
-// Purpose: Updates subcategory image with cloud storage upload
 const updateSubCategoryImage = asyncHandler(async (req, res) => {
 
     const { subCategoryId } = req.params;
@@ -233,7 +228,6 @@ const updateSubCategoryImage = asyncHandler(async (req, res) => {
 
 })
 
-// Purpose: Updates subcategory active status
 const updateSubCategoryStatus = asyncHandler(async (req, res) => {
 
     const { subCategoryId } = req.params;
@@ -266,7 +260,6 @@ const updateSubCategoryStatus = asyncHandler(async (req, res) => {
 
 })
 
-// Purpose: Retrieves subcategories with pagination, search, filtering, and parent category population
 const getSubcategories = asyncHandler(async (req, res) => {
 
     const { page = 1, limit = 10, search = "", isActive, categoryId } = req.query;
@@ -342,7 +335,6 @@ const getSubcategories = asyncHandler(async (req, res) => {
 
 })
 
-// Purpose: Deletes a subcategory by ID
 const deleteSubcategory = asyncHandler(async (req, res) => {
 
     const { subCategoryId } = req.params;
@@ -359,7 +351,6 @@ const deleteSubcategory = asyncHandler(async (req, res) => {
 
 })
 
-// Purpose: Retrieves subcategories filtered by parent category ID with pagination
 const getSubcategoriesByCategoryId = asyncHandler(async (req, res) => {
     const { categoryId } = req.params;
     const { page = 1, limit = 10, isActive } = req.query;
@@ -426,7 +417,6 @@ const getSubcategoriesByCategoryId = asyncHandler(async (req, res) => {
         }, "Subcategories fetched successfully"));
 })
 
-// Purpose: Retrieves subcategories filtered by parent category slug with pagination
 const getSubcategoriesByCategorySlug = asyncHandler(async (req, res) => {
     const { categorySlug } = req.params;
     const { page = 1, limit = 10, isActive } = req.query;

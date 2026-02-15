@@ -14,7 +14,6 @@ import {
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 import { upload } from "../middlerwares/multer.middlerware.js";
 
-// Purpose: Subcategory CRUD, image management, and category-based retrieval routes
 
 const router = Router()
 

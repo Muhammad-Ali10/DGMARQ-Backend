@@ -15,7 +15,6 @@ import mongoose from "mongoose";
 
 
 
-// Purpose: Submits a seller application with shop details and KYC documents
 const applySeller = asyncHandler(async (req, res) => {
   const { shopName, description, country, state, city } = req.body;
 
@@ -61,7 +60,6 @@ const applySeller = asyncHandler(async (req, res) => {
 });
 
 
-// Purpose: Retrieves sellers with optional status filtering and pagination
 const getSellers = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, status } = req.query;
 
@@ -110,7 +108,6 @@ const getSellers = asyncHandler(async (req, res) => {
 });
 
 
-// Purpose: Updates seller shop logo image
 const updateShopLogo = asyncHandler(async (req, res) => {
   if (!req.file?.path) throw new ApiError(400, "Logo file required");
 
@@ -130,7 +127,6 @@ const updateShopLogo = asyncHandler(async (req, res) => {
 
 
 
-// Purpose: Updates seller shop banner image
 const updateShopBanner = asyncHandler(async (req, res) => {
   if (!req.file?.path) throw new ApiError(400, "Banner file required");
 
@@ -150,7 +146,6 @@ const updateShopBanner = asyncHandler(async (req, res) => {
 
 
 
-// Purpose: Updates seller status and manages user roles accordingly
 const updateSellerStatus = asyncHandler(async (req, res) => {
   const { sellerId } = req.params;
   const { status } = req.body;
@@ -188,7 +183,6 @@ const updateSellerStatus = asyncHandler(async (req, res) => {
 });
 
 
-// Purpose: Checks seller application status for customers
 const checkSellerApplicationStatus = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
   if (!userId) throw new ApiError(401, "Unauthorized: User not found in request");
@@ -205,7 +199,6 @@ const checkSellerApplicationStatus = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves seller information with product and order statistics
 const getSellerInfo = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
   if (!userId) throw new ApiError(401, "Unauthorized: User not found in request");
@@ -238,7 +231,6 @@ const getSellerInfo = asyncHandler(async (req, res) => {
 
 
 
-// Purpose: Updates seller profile information
 const updateSellerProfile = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { shopName, description, country, state, city } = req.body;
@@ -267,7 +259,6 @@ const updateSellerProfile = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves seller withdrawal history with optional status filtering
 const getSellerWithdrawalHistory = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { page = 1, limit = 10, status } = req.query;
@@ -291,7 +282,6 @@ const getSellerWithdrawalHistory = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves seller performance metrics including sales, revenue, and product statistics
 const getSellerPerformanceMetrics = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { startDate, endDate } = req.query;
@@ -405,7 +395,6 @@ const getSellerPerformanceMetrics = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves seller verification badge status based on KYC, activity, and sales criteria
 const getSellerVerificationBadge = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
@@ -441,7 +430,6 @@ const getSellerVerificationBadge = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves public seller profile without authentication
 const getPublicSellerProfile = asyncHandler(async (req, res) => {
   const { sellerId } = req.params;
 
@@ -525,7 +513,6 @@ const getPublicSellerProfile = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, sellerProfile, "Seller profile retrieved successfully"));
 });
 
-// Purpose: Retrieves seller products with pagination (public)
 const getSellerProducts = asyncHandler(async (req, res) => {
   const { sellerId } = req.params;
   const { page = 1, limit = 10 } = req.query;
@@ -622,7 +609,6 @@ const getSellerProducts = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, result, "Seller products fetched successfully"));
 });
 
-// Purpose: Retrieves seller review summary and recent reviews
 const getSellerReviews = asyncHandler(async (req, res) => {
   const { sellerId } = req.params;
 

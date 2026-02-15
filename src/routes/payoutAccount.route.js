@@ -12,7 +12,6 @@ import {
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
-// Purpose: Payout account routes for sellers and admin verification
 
 const router = express.Router();
 

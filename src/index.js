@@ -1,15 +1,16 @@
-import 'dotenv/config'
-import ConnectDB from "./db/index.js"
-import { app } from "./app.js"
-import { initializeSocketIO } from "./socket/socket.io.js"
-import { scheduleDailyPayouts } from "./jobs/payout.job.js"
-import { logger } from "./utils/logger.js"
-import http from 'http'
+import 'dotenv/config';
+import { validateEnv } from './config/env.js';
+import ConnectDB from "./db/index.js";
+import { app } from "./app.js";
+import { initializeSocketIO } from "./socket/socket.io.js";
+import { scheduleDailyPayouts } from "./jobs/payout.job.js";
+import { logger } from "./utils/logger.js";
+import http from 'http';
 
-// Purpose: Bootstrap application by connecting to database, initializing Socket.IO, and starting server
 ;(async () => {
     try {
-        await ConnectDB()
+        validateEnv();
+        await ConnectDB();
 
         app.on("error", (error) => {
             logger.error("App error", error);

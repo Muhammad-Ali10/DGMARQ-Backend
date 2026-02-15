@@ -55,5 +55,4 @@ payoutSchema.index({ sellerId: 1, requestType: 1, createdAt: -1 });
 payoutSchema.index({ holdUntil: 1, status: 1 });
 payoutSchema.index({ orderId: 1 }, { sparse: true });
 
-// Purpose: Tracks seller payout requests and processing status via PayPal
 export const Payout = mongoose.model("Payout", payoutSchema);

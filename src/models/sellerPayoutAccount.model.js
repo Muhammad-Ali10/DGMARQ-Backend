@@ -76,6 +76,5 @@ const sellerPayoutAccountSchema = new Schema(
 sellerPayoutAccountSchema.index({ sellerId: 1, status: 1 });
 sellerPayoutAccountSchema.index({ provider: 1, status: 1 });
 
-// Purpose: Stores seller payout account details for payment disbursement
 export const SellerPayoutAccount = mongoose.model("SellerPayoutAccount", sellerPayoutAccountSchema);
 

@@ -13,7 +13,6 @@ import nodemailer from "nodemailer";
 
 
 
-// Purpose: Generates access and refresh tokens for a user and stores the hashed refresh token
 const generateRefreshTokenAndAccessToken = async (userid) => {
 
     const user = await User.findById(userid).select('-password -refreshToken')
@@ -35,7 +34,6 @@ const generateRefreshTokenAndAccessToken = async (userid) => {
 
 
 
-// Purpose: Registers a new user with optional profile image upload
 const registerUser = asyncHandler(async (req, res) => {
 
     const { name, email, password, roles } = req.body
@@ -77,7 +75,6 @@ const registerUser = asyncHandler(async (req, res) => {
 })
 
 
-// Purpose: Authenticates user and returns access/refresh tokens with seller information
 const loginUser = asyncHandler(async (req, res) => {
 
     const { email, password } = req.body
@@ -174,7 +171,6 @@ const loginUser = asyncHandler(async (req, res) => {
 })
 
 
-// Purpose: Refreshes access token using a valid refresh token
 const refreshAccessToken = asyncHandler(async (req, res) => {
 
     const incomingRefreshToken = (req.cookies?.refreshToken) || (req.body?.refreshToken);
@@ -221,7 +217,6 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 })
 
 
-// Purpose: Logs out user by clearing refresh token and cookies
 const logoutUser = asyncHandler(async (req, res) => {
 
     if (req.user && req.user._id) {
@@ -251,7 +246,6 @@ const logoutUser = asyncHandler(async (req, res) => {
 })
 
 
-// Purpose: Retrieves user profile excluding sensitive fields
 const getProfile = asyncHandler(async (req, res) => {
     const user = await User.findById(req.user._id).select('-password -refreshToken -emailVerificationOTP -emailVerificationToken -passwordResetToken').lean()
 
@@ -262,7 +256,6 @@ const getProfile = asyncHandler(async (req, res) => {
     res.status(200).json(new ApiResponse(200, user, "Profile retrieved successfully"))
 })
 
-// Purpose: Updates user profile including optional profile image and name
 const updateProfile = asyncHandler(async (req, res) => {
 
     const user = await User.findById(req.user._id)
@@ -295,7 +288,6 @@ const updateProfile = asyncHandler(async (req, res) => {
 })
 
 
-// Purpose: Updates user password after validating old password
 const updatePassword = asyncHandler(async (req, res) => {
 
     const { oldPassword, newPassword } = req.body
@@ -320,12 +312,10 @@ const updatePassword = asyncHandler(async (req, res) => {
 })
 
 
-// Purpose: Initiates Google OAuth authentication flow
 const googleOAuth = asyncHandler(async (req, res, next) => {
   next();
 });
 
-// Purpose: Handles Google OAuth callback and redirects with tokens
 const googleOAuthCallback = asyncHandler(async (req, res) => {
   const user = req.user;
 
@@ -345,12 +335,10 @@ const googleOAuthCallback = asyncHandler(async (req, res) => {
   return res.redirect(redirectUrl);
 });
 
-// Purpose: Initiates Facebook OAuth authentication flow
 const facebookOAuth = asyncHandler(async (req, res, next) => {
   next();
 });
 
-// Purpose: Handles Facebook OAuth callback and redirects with tokens
 const facebookOAuthCallback = asyncHandler(async (req, res) => {
   const user = req.user;
 
@@ -370,7 +358,6 @@ const facebookOAuthCallback = asyncHandler(async (req, res) => {
   return res.redirect(redirectUrl);
 });
 
-// Purpose: Links an OAuth account to the current user account
 const linkOAuthAccount = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { provider, oauthId } = req.body;
@@ -402,7 +389,6 @@ const linkOAuthAccount = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Unlinks an OAuth account from the user account
 const unlinkOAuthAccount = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { provider } = req.body;
@@ -431,7 +417,6 @@ const unlinkOAuthAccount = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Sends email verification OTP to user's email address
 const sendEmailVerification = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const user = await User.findById(userId);
@@ -462,7 +447,6 @@ const sendEmailVerification = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Verifies user email using the provided OTP
 const verifyEmail = asyncHandler(async (req, res) => {
   const { otp } = req.body;
   const userId = req.user._id;
@@ -501,7 +485,6 @@ const verifyEmail = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Initiates password reset process by sending reset email
 const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
 
@@ -529,7 +512,6 @@ const forgotPassword = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Resets user password using a valid reset token
 const resetPassword = asyncHandler(async (req, res) => {
   const { token, newPassword } = req.body;
 
@@ -560,7 +542,6 @@ const resetPassword = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Initiates email change process by sending verification email to new address
 const changeEmail = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { newEmail, password } = req.body;
@@ -622,7 +603,6 @@ const changeEmail = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Verifies and completes email change using verification token
 const verifyEmailChange = asyncHandler(async (req, res) => {
   const { token } = req.body;
 
@@ -657,7 +637,6 @@ const verifyEmailChange = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Deletes user account after password verification and deactivates all sessions
 const deleteAccount = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { password } = req.body;
@@ -688,7 +667,6 @@ const deleteAccount = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all active sessions for the current user
 const getActiveSessions = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
@@ -703,7 +681,6 @@ const getActiveSessions = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Revokes a specific user session by session ID
 const revokeSession = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { sessionId } = req.params;
@@ -726,7 +703,6 @@ const revokeSession = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Revokes all active sessions for the current user
 const revokeAllSessions = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 

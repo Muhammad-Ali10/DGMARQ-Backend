@@ -9,7 +9,6 @@ import {
 } from "../controller/upcomingrelease.controller.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
-// Purpose: Upcoming release routes for public viewing and admin slot management
 
 const router = express.Router();
 

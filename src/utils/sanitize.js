@@ -1,4 +1,3 @@
-// Purpose: Removes HTML tags and dangerous content from text
 export const sanitizeText = (text) => {
   if (!text || typeof text !== 'string') {
     return text;
@@ -17,7 +16,6 @@ export const sanitizeText = (text) => {
   return sanitized;
 };
 
-// Purpose: Validates SEO meta title length
 export const validateMetaTitle = (title) => {
   if (!title) return { valid: true, value: null };
   
@@ -37,7 +35,6 @@ export const validateMetaTitle = (title) => {
   return { valid: true, value: sanitized };
 };
 
-// Purpose: Validates SEO meta description length
 export const validateMetaDescription = (description) => {
   if (!description) return { valid: true, value: null };
   

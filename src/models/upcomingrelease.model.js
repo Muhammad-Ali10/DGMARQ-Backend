@@ -36,7 +36,6 @@ const upcomingReleaseSchema = new Schema(
   { timestamps: true }
 );
 
-// Purpose: Retrieves or creates the singleton upcoming release configuration document
 upcomingReleaseSchema.statics.getOrCreate = async function () {
   let config = await this.findOne();
   if (!config) {
@@ -50,6 +49,5 @@ upcomingReleaseSchema.statics.getOrCreate = async function () {
   return config;
 };
 
-// Purpose: Manages featured upcoming release slots with custom background images
 export const UpcomingRelease = mongoose.model("UpcomingRelease", upcomingReleaseSchema);
 

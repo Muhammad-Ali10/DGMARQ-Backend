@@ -1,7 +1,7 @@
 import { validationResult, body, param, query } from 'express-validator';
 import { ApiError } from '../utils/ApiError.js';
 
-// Purpose: Runs validations and throws ApiError if validation fails
+/** Runs validations and throws ApiError on failure. */
 export const validate = (validations) => {
   return async (req, res, next) => {
     await Promise.all(validations.map(validation => validation.run(req)));
@@ -20,22 +20,20 @@ export const validate = (validations) => {
   };
 };
 
-// Purpose: Validates MongoDB ObjectId format in URL params
+/** Param validation for Mongo ObjectId. */
 export const mongoIdValidation = (field = 'id') => {
   return param(field).isMongoId().withMessage(`Invalid ${field} format`);
 };
 
-// Purpose: Validates MongoDB ObjectId format in request body
+/** Body validation for Mongo ObjectId. */
 export const mongoIdBodyValidation = (field = 'id') => {
   return body(field).isMongoId().withMessage(`Invalid ${field} format`);
 };
 
-// Purpose: Validates and normalizes email format
 export const emailValidation = () => {
   return body('email').isEmail().normalizeEmail().withMessage('Invalid email format');
 };
 
-// Purpose: Validates password meets minimum security requirements
 export const passwordValidation = () => {
   return body('password')
     .isLength({ min: 6 })
@@ -44,7 +42,6 @@ export const passwordValidation = () => {
     .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number');
 };
 
-// Purpose: Validates rating is an integer between 1 and 5
 export const ratingValidation = () => {
   return body('rating')
     .toInt()
@@ -52,14 +49,12 @@ export const ratingValidation = () => {
     .withMessage('Rating must be between 1 and 5');
 };
 
-// Purpose: Validates price is a positive number
 export const priceValidation = () => {
   return body('price')
     .isFloat({ min: 0.01 })
     .withMessage('Price must be a positive number');
 };
 
-// Purpose: Validates quantity is a positive integer
 export const quantityValidation = () => {
   return body('qty')
     .isInt({ min: 1 })

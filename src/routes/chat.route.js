@@ -1,4 +1,3 @@
-// Purpose: Chat routes for conversations, messaging, read status, and unread count management
 import { Router } from "express";
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 import { messageLimiter } from "../middlerwares/rateLimit.middlerware.js";

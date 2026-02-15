@@ -2,7 +2,6 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { SeoSettings } from "../models/seoSettings.model.js";
 
-// Purpose: Retrieves home page SEO settings for public access
 const getHomePageSEO = asyncHandler(async (req, res) => {
   const seoSettings = await SeoSettings.findOne({ page: 'home' });
 

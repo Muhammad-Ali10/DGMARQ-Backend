@@ -40,7 +40,6 @@ const uploadChatImageFromBuffer = (buffer) => {
   });
 };
 
-// Purpose: Uploads a file to Cloudinary and returns HTTPS URL
 const fileUploader = async (localfilepath) => {
   getCloudinaryConfig();
 
@@ -60,13 +59,14 @@ const fileUploader = async (localfilepath) => {
     
     return response
   } catch (error) {
-    fs.unlinkSync(localfilepath)
+    if (fs.existsSync(localfilepath)) {
+      try { fs.unlinkSync(localfilepath); } catch (_) {}
+    }
     throw error
   }
 
 }
 
-// Purpose: Converts HTTP URLs to HTTPS format
 export const normalizeToHttps = (url) => {
   if (!url || typeof url !== 'string') return url;
   if (url.startsWith('http://')) {

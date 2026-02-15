@@ -12,8 +12,8 @@ import {
 import { verifyJWT } from "../middlerwares/authmiddlerware.js";
 import { authorizeRoles } from "../middlerwares/authmiddlerware.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
+import { validateSubscriptionPlanId } from "../middlerwares/subscriptionValidation.middlerware.js";
 
-// Purpose: Subscription plans, user subscriptions, and admin subscription management routes
 
 const router = express.Router();
 
@@ -22,7 +22,7 @@ router.use(apiRateLimiter);
 router.get("/plans", getSubscriptionPlans);
 
 router.get("/me", verifyJWT, getMySubscription);
-router.post("/subscribe", verifyJWT, subscribe);
+router.post("/subscribe", verifyJWT, validateSubscriptionPlanId(), subscribe);
 router.post("/confirm", verifyJWT, confirmSubscription);
 router.post("/cancel", verifyJWT, cancelMySubscription);
 router.post("/renew", verifyJWT, renewMySubscription);

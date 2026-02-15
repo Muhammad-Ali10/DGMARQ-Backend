@@ -1,4 +1,3 @@
-// Purpose: Custom error class for standardized API error handling
 class ApiError extends Error {
     constructor(
         statusCode = "",

@@ -15,11 +15,10 @@ import { calculateAverageRating } from "../services/review.service.js";
 import { fileUploader } from "../utils/cloudinary.js";
 
 
-// Purpose: Creates a review for a product after verifying purchase in the specified order.
-// Marketplace rules: only completed/partially-refunded orders; one review per product per order; no review if order in dispute.
+/** Creates review. Requires completed order; one per product per order; blocked if order in dispute. */
 const createReview = asyncHandler(async (req, res) => {
   const { rating, comment, productId, orderId } = req.body;
-  const userId = req.user._id; // Guest users cannot reach this (verifyJWT required)
+  const userId = req.user._id;
 
   if (!rating && rating !== 0) {
     throw new ApiError(400, "Rating is required");
@@ -47,8 +46,6 @@ const createReview = asyncHandler(async (req, res) => {
     }
     throw error;
   }
-
-  // Only completed or partially refunded orders: buyer can still leave one review per product per order (partial refund does not remove review)
   const order = await Order.findOne({
     _id: orderId,
     userId,
@@ -59,8 +56,6 @@ const createReview = asyncHandler(async (req, res) => {
   if (!order) {
     throw new ApiError(404, "Order not found or not completed. Only buyers with a completed order can leave a review.");
   }
-
-  // Block review if order has an open refund request (order in dispute)
   const openRefund = await ReturnRefund.findOne({
     orderId,
     status: { $in: ['PENDING', 'SELLER_REVIEW', 'SELLER_APPROVED', 'ADMIN_REVIEW', 'ADMIN_APPROVED', 'pending', 'approved'] },
@@ -83,8 +78,6 @@ const createReview = asyncHandler(async (req, res) => {
   if (!trimmedComment) {
     throw new ApiError(400, "Comment is required and cannot be empty.");
   }
-
-  // Duplicate protection: one review per product per order (unique index also prevents race duplicates)
   const existingReview = await Review.findOne({ productId, userId, orderId });
   if (existingReview) {
     throw new ApiError(400, "You have already submitted a review for this product in this order. Only one review per product per order is allowed.");
@@ -113,7 +106,6 @@ const createReview = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, review, "Review created successfully"));
 });
 
-// Purpose: Updates an existing review by the review owner. Editing allowed only before any refund is processed for the order.
 const updateReview = asyncHandler(async (req, res) => {
   const { rating, comment } = req.body;
   const { id } = req.params;
@@ -134,8 +126,6 @@ const updateReview = asyncHandler(async (req, res) => {
   if (!review) {
     throw new ApiError(404, "Review not found");
   }
-
-  // Block edit after any refund: marketplace rule — editing allowed only before any refund is processed
   const order = await Order.findById(review.orderId).select("orderStatus paymentStatus items.refunded items.refundedKeysCount").lean();
   if (!order) {
     throw new ApiError(404, "Order not found");
@@ -160,7 +150,6 @@ const updateReview = asyncHandler(async (req, res) => {
 });
 
 
-// Purpose: Deletes a review by the review owner and recalculates product rating
 const deleteReview = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user._id;
@@ -184,17 +173,16 @@ const deleteReview = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, null, "Review deleted successfully"));
 });
 
-// Purpose: Retrieves reviews with optional filtering by product, rating, and sorting
 const getReviews = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, productId, rating, sortBy } = req.query;
 
   const matchStage = {
     isHidden: false,
-    isInvalidated: { $ne: true }, // Exclude reviews from fully refunded orders (marketplace rule)
+    isInvalidated: { $ne: true },
     $or: [
       { moderationStatus: 'approved' },
-      { moderationStatus: { $exists: false } }, // For reviews created before moderation was added
-      { moderationStatus: 'pending', isModerated: false }, // Show pending if not yet moderated
+      { moderationStatus: { $exists: false } },
+      { moderationStatus: 'pending', isModerated: false },
     ],
     ...(productId && { productId: new mongoose.Types.ObjectId(productId) }),
     ...(rating && { rating: Number(rating) }),
@@ -252,7 +240,6 @@ const getReviews = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, reviews, "Reviews fetched successfully"));
 });
 
-// Purpose: Records a helpful vote on a review and updates the helpful count
 const voteOnReview = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
   const userId = req.user._id;
@@ -294,7 +281,6 @@ const voteOnReview = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Adds a reply to a review by the product seller or admin
 const replyToReview = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
   const userId = req.user._id;
@@ -334,7 +320,6 @@ const replyToReview = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all replies for a specific review
 const getReviewReplies = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
 
@@ -351,7 +336,6 @@ const getReviewReplies = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Adds a photo to a review with image upload
 const addReviewPhoto = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
   const userId = req.user._id;
@@ -387,7 +371,6 @@ const addReviewPhoto = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all photos associated with a review
 const getReviewPhotos = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
 
@@ -402,7 +385,6 @@ const getReviewPhotos = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Moderates a review by approving, rejecting, or hiding it (admin only)
 const moderateReview = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
   const { action, reason } = req.body;

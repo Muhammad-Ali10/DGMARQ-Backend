@@ -1,4 +1,3 @@
-// Purpose: Admin routes for managing sellers, products, payouts, users, dashboard, chat moderation, and platform settings
 import { Router } from "express";
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 import {

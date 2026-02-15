@@ -16,7 +16,6 @@ const schema = new mongoose.Schema(
     { timestamps: true },
 )
 
-// Purpose: Stores gaming platform types for product classification
 export const Platform = mongoose.model("Platform", schema)
 
 const platformSettingsSchema = new mongoose.Schema(
@@ -40,5 +39,4 @@ const platformSettingsSchema = new mongoose.Schema(
     { timestamps: true }
 );
 
-// Purpose: Stores global platform configuration settings with key-value pairs
 export const PlatformSettings = mongoose.model("PlatformSettings", platformSettingsSchema);

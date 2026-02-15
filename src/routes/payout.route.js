@@ -10,7 +10,6 @@ import {
   getPayoutReports,
 } from "../controller/payout.controller.js";
 
-// Purpose: Payout routes for sellers to manage earnings and request payouts
 
 const router = Router();
 

@@ -15,7 +15,7 @@ import {
   getPayPalUserInfo,
 } from "../services/payment.service.js";
 
-const PAYPAL_CONNECT_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const PAYPAL_CONNECT_STATE_TTL_MS = 10 * 60 * 1000;
 
 function createPayPalConnectState(sellerId) {
   const secret = process.env.ACCESS_TOKEN_SECRET || process.env.ENCRYPTION_KEY || "paypal-connect-secret";
@@ -43,14 +43,16 @@ function verifyPayPalConnectState(state) {
   return sellerId;
 }
 
-// Purpose: Redirects seller to PayPal OAuth (Connect PayPal). No manual email.
 const getPayPalConnectUrl = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const seller = await Seller.findOne({ userId });
   if (!seller) {
     throw new ApiError(404, "Seller profile not found");
   }
-  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+  const baseUrl =
+    process.env.BACKEND_URL ||
+    process.env.BASE_URL ||
+    `${req.protocol}://${req.get("host")}`;
   const redirectUri = `${baseUrl}/api/v1/payout-account/paypal/callback`;
   const state = createPayPalConnectState(seller._id.toString());
   const url = getPayPalOAuthAuthorizeUrl(state, redirectUri);
@@ -59,7 +61,6 @@ const getPayPalConnectUrl = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: PayPal OAuth callback – exchange code, fetch userinfo, update seller (paypalMerchantId, paypalVerified, etc.).
 const paypalOAuthCallback = asyncHandler(async (req, res) => {
   const { code, state } = req.query;
   const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
@@ -80,7 +81,10 @@ const paypalOAuthCallback = asyncHandler(async (req, res) => {
     return res.redirect(`${errorRedirect}&reason=seller_not_found`);
   }
 
-  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+  const baseUrl =
+    process.env.BACKEND_URL ||
+    process.env.BASE_URL ||
+    `${req.protocol}://${req.get("host")}`;
   const redirectUri = `${baseUrl}/api/v1/payout-account/paypal/callback`;
 
   let tokenData;
@@ -167,7 +171,6 @@ const paypalOAuthCallback = asyncHandler(async (req, res) => {
   return res.redirect(successRedirect);
 });
 
-// Purpose: Reject manual PayPal email link – sellers must use Connect PayPal (OAuth).
 const linkPayoutAccount = asyncHandler(async (req, res) => {
   const { accountType } = req.body || {};
 
@@ -181,7 +184,6 @@ const linkPayoutAccount = asyncHandler(async (req, res) => {
   throw new ApiError(400, "Only PayPal is supported. Please use 'Connect PayPal' to link your account.");
 });
 
-// Purpose: Retrieves seller's payout account status (OAuth + legacy) with masked sensitive information
 const getMyPayoutAccount = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
@@ -235,7 +237,6 @@ const getMyPayoutAccount = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Verifies a payout account and notifies the seller
 const verifyPayoutAccount = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
   const { accountId } = req.params;
@@ -280,7 +281,6 @@ const verifyPayoutAccount = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Blocks or unblocks a payout account and notifies the seller
 const blockPayoutAccount = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
   const { accountId } = req.params;
@@ -356,7 +356,6 @@ const blockPayoutAccount = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves a seller's payout account details for admin
 const getSellerPayoutAccount = asyncHandler(async (req, res) => {
   const { sellerId } = req.params;
 
@@ -390,7 +389,6 @@ const getSellerPayoutAccount = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all sellers with their payout account status and optional filtering
 const getSellersPayoutStatus = asyncHandler(async (req, res) => {
   const { hasAccount, isVerified, page = 1, limit = 10 } = req.query;
 
@@ -459,7 +457,6 @@ const getSellersPayoutStatus = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Masks account identifier for secure display in responses
 const maskAccountIdentifier = (identifier, accountType) => {
   if (!identifier) return "";
   

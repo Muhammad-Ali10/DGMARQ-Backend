@@ -6,7 +6,6 @@ import { TrendingCategory } from "../models/trendingcategory.model.js";
 import { Category } from "../models/category.model.js";
 import { getTrendingCategories, updateTrendingCategories } from "../services/trendingcategory.service.js";
 
-// Purpose: Retrieves trending categories based on real sales data
 const getTrendingCategoriesHandler = asyncHandler(async (req, res) => {
   const { limit = 6 } = req.query;
 
@@ -25,7 +24,6 @@ const getTrendingCategoriesHandler = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves trending category by ID
 const getTrendingCategoryById = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -45,7 +43,6 @@ const getTrendingCategoryById = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Recalculates trending categories based on current sales data for admin
 const updateTrendingCategoriesHandler = asyncHandler(async (req, res) => {
   const result = await updateTrendingCategories();
 
@@ -54,7 +51,6 @@ const updateTrendingCategoriesHandler = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all trending categories with pagination for admin
 const getAllTrendingCategories = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10 } = req.query;
 

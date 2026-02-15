@@ -1,6 +1,6 @@
 import { logger } from '../utils/logger.js';
 
-// Purpose: Enforces HTTPS connections and redirects HTTP to HTTPS in production
+/** Redirects HTTP to HTTPS in production. Logs warning for PayPal endpoints on HTTP in dev. */
 export const enforceHTTPS = (req, res, next) => {
   const isProduction = process.env.NODE_ENV === 'production';
   const isHTTPS = req.secure || req.headers['x-forwarded-proto'] === 'https';
@@ -24,7 +24,7 @@ export const enforceHTTPS = (req, res, next) => {
   next();
 };
 
-// Purpose: Adds security headers for XSS protection and PayPal CardFields compatibility
+/** Sets security headers: X-Content-Type-Options, X-Frame-Options, CSP for PayPal. */
 export const securityHeaders = (req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');

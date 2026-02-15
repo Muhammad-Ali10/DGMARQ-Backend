@@ -1,4 +1,3 @@
-// Purpose: Generates HTML email template for license key delivery
 export const licenseKeyEmailTemplate = (order, keys, user, keyToItemMap = null) => {
   let keyIndex = 0;
   const keysList = [];
@@ -96,7 +95,6 @@ export const licenseKeyEmailTemplate = (order, keys, user, keyToItemMap = null) 
   `;
 };
 
-// Purpose: Generates HTML email template for order confirmation
 export const orderConfirmationEmailTemplate = (order, user) => {
   const itemsList = order.items.map((item, index) => {
     let productName = 'Product name unavailable';
@@ -174,7 +172,6 @@ export const orderConfirmationEmailTemplate = (order, user) => {
   `;
 };
 
-// Purpose: Generates HTML email template for seller payout notification
 export const payoutNotificationEmailTemplate = (payout, seller) => {
   return `
     <!DOCTYPE html>
@@ -201,6 +198,83 @@ export const payoutNotificationEmailTemplate = (payout, seller) => {
           <p><strong>Status:</strong> ${payout.status}</p>
           ${payout.paypalTransactionId ? `<p><strong>Transaction ID:</strong> ${payout.paypalTransactionId}</p>` : ''}
           <p>The funds should appear in your PayPal account within 1-2 business days.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+// refundMethod: WALLET | ORIGINAL_PAYMENT (processing method)
+export const refundIssuedSellerEmailTemplate = (orderNumber, productName, buyerName, refundAmount, refundType, payoutStatus, refundMethod = 'WALLET') => {
+  const refundTypeLabel = refundType === 'full' ? 'Full' : 'Partial';
+  const refundMethodLabel = (refundMethod || 'WALLET').toUpperCase().replace(/_/g, ' ');
+  const payoutNote = payoutStatus === 'HELD'
+    ? 'Payout for this order was still held; the refund has been deducted from your pending balance.'
+    : 'Payout for this order had already been released; the refund has been deducted from your available balance.';
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #dc3545; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+        .content { background: #fff; padding: 20px; border: 1px solid #ddd; }
+        .summary { margin: 16px 0; padding: 12px 0; border-bottom: 1px solid #eee; }
+        .summary p { margin: 6px 0; }
+        .highlight { background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 16px 0; border-radius: 3px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Refund Issued</h1>
+        </div>
+        <div class="content">
+          <p>A refund of <strong>$${Number(refundAmount).toFixed(2)}</strong> has been issued for your product <strong>${productName}</strong>.</p>
+          <div class="summary">
+            <p><strong>Order:</strong> #${orderNumber}</p>
+            <p><strong>Refund type:</strong> ${refundTypeLabel}</p>
+            <p><strong>Refund method:</strong> ${refundMethodLabel}</p>
+            ${buyerName ? `<p><strong>Buyer:</strong> ${buyerName}</p>` : ''}
+          </div>
+          <div class="highlight">
+            <p style="margin: 0;"><strong>Payout status:</strong> ${payoutNote}</p>
+          </div>
+          <p>Please review the updated order details in your <a href="${process.env.FRONTEND_URL || ''}/seller/orders">seller dashboard</a>.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+export const refundRequestedSellerEmailTemplate = (orderNumber, productName, refundAmount, dashboardUrl) => {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #fd7e14; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+        .content { background: #fff; padding: 20px; border: 1px solid #ddd; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Refund Requested</h1>
+        </div>
+        <div class="content">
+          <p>A customer has requested a refund for your product <strong>${productName}</strong>.</p>
+          <p><strong>Order:</strong> #${orderNumber}</p>
+          <p><strong>Requested amount:</strong> $${Number(refundAmount).toFixed(2)}</p>
+          <p>Admin will review the request. You can view and add feedback in your <a href="${dashboardUrl}">seller dashboard</a>.</p>
         </div>
       </div>
     </body>

@@ -44,6 +44,5 @@ supportMessageSchema.index({ supportChatId: 1, sentAt: -1 });
 supportMessageSchema.index({ senderId: 1, sentAt: -1 });
 supportMessageSchema.index({ senderType: 1, sentAt: -1 });
 
-// Purpose: Represents individual messages within a support chat conversation
 export const SupportMessage = mongoose.model("SupportMessage", supportMessageSchema);
 

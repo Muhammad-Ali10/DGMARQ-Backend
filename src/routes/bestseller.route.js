@@ -1,4 +1,3 @@
-// Purpose: Bestseller routes for retrieving and generating bestseller product lists
 import express from "express";
 import {
   getBestsellers,

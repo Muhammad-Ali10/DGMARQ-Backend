@@ -8,7 +8,6 @@ import {
 } from "../controller/platform.controller.js";
 import { verifyJWT, authorizeRoles, optionalJWT } from "../middlerwares/authmiddlerware.js";
 
-// Purpose: Platform CRUD and status management routes
 
 const router = Router();
 

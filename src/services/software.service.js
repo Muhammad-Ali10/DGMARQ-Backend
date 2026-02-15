@@ -6,7 +6,6 @@ import { Platform } from "../models/platform.model.js";
 import cache from "../utils/cache.js";
 import { getTrendingOfferForProduct, calculateTrendingOfferDiscount } from "./trendingoffer.service.js";
 
-// Purpose: Fetches products for Software page sections with optimized fields and sorting
 const fetchSoftwareSection = async (filters, sortBy = { createdAt: -1 }, limit = 6) => {
   const match = {
     status: { $in: ['active', 'approved'] },
@@ -46,7 +45,6 @@ const fetchSoftwareSection = async (filters, sortBy = { createdAt: -1 }, limit =
   return enrichedProducts;
 };
 
-// Purpose: Gets category IDs by name pattern with caching
 const getCategoryIdsByName = async (namePatterns) => {
   const cacheKey = `category_ids_${JSON.stringify(namePatterns)}`;
   let categoryIds = cache.get(cacheKey);
@@ -65,7 +63,6 @@ const getCategoryIdsByName = async (namePatterns) => {
   return categoryIds;
 };
 
-// Purpose: Gets subcategory IDs by name pattern with caching
 const getSubCategoryIdsByName = async (namePatterns) => {
   const cacheKey = `subcategory_ids_${JSON.stringify(namePatterns)}`;
   let subCategoryIds = cache.get(cacheKey);
@@ -84,7 +81,6 @@ const getSubCategoryIdsByName = async (namePatterns) => {
   return subCategoryIds;
 };
 
-// Purpose: Gets a single platform ID by exact name match with caching
 const getPlatformIdByName = async (platformName) => {
   const cacheKey = `platform_${platformName.toLowerCase()}`;
   let platformId = cache.get(cacheKey);
@@ -104,7 +100,6 @@ const getPlatformIdByName = async (platformName) => {
   return platformId ? new mongoose.Types.ObjectId(platformId) : null;
 };
 
-// Purpose: Gets multiple platform IDs by name patterns with caching
 const getPlatformIdsByName = async (namePatterns) => {
   const cacheKey = `platform_ids_${JSON.stringify(namePatterns)}`;
   let platformIds = cache.get(cacheKey);
@@ -124,7 +119,6 @@ const getPlatformIdsByName = async (namePatterns) => {
   return platformIds;
 };
 
-// Purpose: Fetches all Software page sections data in parallel with caching
 export const getSoftwarePageData = async () => {
   const cacheKey = 'software_page_data';
   

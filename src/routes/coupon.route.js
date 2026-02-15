@@ -1,4 +1,3 @@
-// Purpose: Coupon routes for creating, validating, managing, and deleting discount coupons
 import express from "express";
 import {
   createCoupon,

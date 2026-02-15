@@ -6,7 +6,6 @@ import { Payout } from "../models/payout.model.js";
 import { Seller } from "../models/seller.model.js";
 import mongoose from "mongoose";
 
-// Purpose: Retrieves seller's payout history with pagination
 const getMyPayouts = asyncHandler(async (req, res) => {
   const sellerId = req.user.seller?._id || req.user._id;
   const { page = 1, limit = 10 } = req.query;
@@ -25,7 +24,6 @@ const getMyPayouts = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves detailed information for a single payout
 const getPayoutDetails = asyncHandler(async (req, res) => {
   const { payoutId } = req.params;
   const userId = req.user._id;
@@ -57,7 +55,6 @@ const getPayoutDetails = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves seller's current payout balance
 const getPayoutBalance = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
@@ -75,12 +72,10 @@ const getPayoutBalance = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Creates a manual payout request for the seller (DISABLED - seller-initiated payouts are not allowed)
 const requestPayout = asyncHandler(async (req, res) => {
   throw new ApiError(403, "Seller-initiated payouts are disabled.");
 });
 
-// Purpose: Retrieves payout requests for the seller with optional status filtering
 const getPayoutRequests = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { page = 1, limit = 10, status } = req.query;
@@ -121,12 +116,10 @@ const getPayoutRequests = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Updates the minimum payout threshold for the seller (DISABLED - payout settings managed by platform)
 const updateMinimumPayoutThreshold = asyncHandler(async (req, res) => {
   throw new ApiError(403, "Seller-initiated payouts are disabled.");
 });
 
-// Purpose: Generates payout reports with optional date filtering and CSV export
 const getPayoutReports = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { startDate, endDate, format = "json" } = req.query;

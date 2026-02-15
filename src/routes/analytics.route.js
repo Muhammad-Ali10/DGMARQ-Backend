@@ -1,4 +1,3 @@
-// Purpose: Analytics routes for product views, category stats, reports, real-time counters, and user behavior tracking
 import express from "express";
 import {
   getProductAnalytics,

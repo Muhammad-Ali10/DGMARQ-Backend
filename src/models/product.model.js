@@ -86,5 +86,4 @@ productSchema.index({ status: 1, reviewCount: -1, averageRating: -1 });
 productSchema.index({ status: 1, createdAt: -1 });
 productSchema.plugin(mongooseAggregatePaginate);
 
-// Purpose: Stores product listings with pricing, inventory, and metadata for the marketplace
 export const Product = mongoose.model("Product", productSchema);

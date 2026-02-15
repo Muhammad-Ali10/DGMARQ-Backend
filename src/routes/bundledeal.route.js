@@ -1,4 +1,3 @@
-// Purpose: Bundle deal routes for creating, managing, and retrieving product bundle deals
 import { Router } from "express";
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 import { upload } from "../middlerwares/multer.middlerware.js";

@@ -86,7 +86,6 @@ const bundleDealSchema = new Schema(
 bundleDealSchema.index({ isActive: 1, startDate: 1, endDate: 1 });
 bundleDealSchema.index({ "products": 1 });
 
-// Purpose: Returns whether the bundle deal is currently active based on dates and status
 bundleDealSchema.virtual("isCurrentlyActive").get(function () {
   const now = new Date();
   return (
@@ -96,7 +95,6 @@ bundleDealSchema.virtual("isCurrentlyActive").get(function () {
   );
 });
 
-// Purpose: Auto-generates slug from title before saving if not provided
 bundleDealSchema.pre("save", function (next) {
   if (!this.slug && this.title) {
     this.slug = this.title
@@ -109,6 +107,5 @@ bundleDealSchema.pre("save", function (next) {
 
 bundleDealSchema.plugin(mongooseAggregatePaginate);
 
-// Purpose: Represents promotional bundle deals combining two products with discounts
 export const BundleDeal = mongoose.model("BundleDeal", bundleDealSchema);
 

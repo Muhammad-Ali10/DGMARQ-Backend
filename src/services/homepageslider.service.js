@@ -3,7 +3,6 @@ import { Product } from '../models/product.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import mongoose from 'mongoose';
 
-// Purpose: Retrieves active homepage sliders sorted by slide index and order
 export const getActiveSliders = async () => {
   return await HomepageSlider.find({
     isActive: true,
@@ -13,7 +12,6 @@ export const getActiveSliders = async () => {
     .lean();
 };
 
-// Purpose: Validates slider data ensuring product exists if specified
 export const validateSliderData = async (data) => {
   const { productId, link } = data;
 

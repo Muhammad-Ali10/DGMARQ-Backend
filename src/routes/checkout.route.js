@@ -1,4 +1,3 @@
-// Purpose: Checkout routes for creating sessions, handling payments, and processing order completion
 import { Router } from "express";
 import { verifyJWT, authorizeRoles, optionalJWT } from "../middlerwares/authmiddlerware.js";
 import { checkoutLimiter } from "../middlerwares/rateLimit.middlerware.js";

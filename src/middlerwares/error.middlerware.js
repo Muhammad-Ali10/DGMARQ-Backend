@@ -1,6 +1,6 @@
 import { logger } from '../utils/logger.js';
 
-// Purpose: Handles all errors and returns standardized error responses
+/** Handles all errors, returns standardized JSON. Logs 5xx; includes stack in development. */
 const errorHandler = async (err, req, res, next) => {
     const statusCode = err.statusCode || 500;
 
@@ -14,6 +14,12 @@ const errorHandler = async (err, req, res, next) => {
 
     if (err.details) {
         errorResponse.details = err.details;
+    }
+    if (err.code) {
+        errorResponse.code = err.code;
+    }
+    if (err.debug_id) {
+        errorResponse.debug_id = err.debug_id;
     }
 
     if (process.env.NODE_ENV === "development") {

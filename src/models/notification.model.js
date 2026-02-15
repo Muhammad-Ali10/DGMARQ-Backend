@@ -18,5 +18,4 @@ const notificationSchema = new Schema(
 notificationSchema.index({ userId: 1, isRead: 1, type: 1 });
 notificationSchema.index({ userId: 1, createdAt: -1 });
 
-// Purpose: Stores user notifications for orders, payouts, refunds, and system events
 export const Notification = mongoose.model("Notification", notificationSchema);

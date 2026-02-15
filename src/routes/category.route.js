@@ -1,4 +1,3 @@
-// Purpose: Category routes for creating, updating, retrieving, and deleting product categories
 import { Router } from "express";
 import { createCategory, getCategoryById, updateCategory, updateCategoryImage, updateCategoryStatus, getCategories, deleteCategory } from "../controller/category.controller.js";
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";

@@ -13,7 +13,6 @@ import {
   updateAllOfferStatuses,
 } from "../services/trendingoffer.service.js";
 
-// Purpose: Creates a trending offer with product and date validation for admin
 const createTrendingOffer = asyncHandler(async (req, res) => {
   const { products, discountPercent, startTime, endTime } = req.body;
 
@@ -77,7 +76,6 @@ const createTrendingOffer = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all active trending offers for public access
 const getTrendingOffers = asyncHandler(async (req, res) => {
   const offers = await getActiveTrendingOffers();
 
@@ -86,7 +84,6 @@ const getTrendingOffers = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves trending offer by ID
 const getTrendingOfferById = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -106,7 +103,6 @@ const getTrendingOfferById = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves trending offer for a specific product
 const getOfferByProduct = asyncHandler(async (req, res) => {
   const { productId } = req.params;
 
@@ -130,7 +126,6 @@ const getOfferByProduct = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Updates trending offer with validation for admin
 const updateTrendingOffer = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { products, discountPercent, startTime, endTime, status } = req.body;
@@ -215,7 +210,6 @@ const updateTrendingOffer = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Deletes a trending offer by ID for admin
 const deleteTrendingOffer = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -235,7 +229,6 @@ const deleteTrendingOffer = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all trending offers with pagination for admin
 const getAllTrendingOffers = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, status } = req.query;
 
@@ -267,7 +260,6 @@ const getAllTrendingOffers = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Updates all offer statuses based on current time for admin
 const updateAllStatuses = asyncHandler(async (req, res) => {
   await updateAllOfferStatuses();
 

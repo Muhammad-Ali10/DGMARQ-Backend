@@ -1,10 +1,15 @@
 import multer from "multer";
+import path from "path";
+import fs from "fs";
 import { ApiError } from "../utils/ApiError.js";
 import { CHAT_IMAGE_LIMITS } from "../utils/cloudinary.js";
 
+const tempDir = path.join(process.cwd(), "public", "temp");
+
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, './public/temp');
+        fs.mkdirSync(tempDir, { recursive: true });
+        cb(null, tempDir);
     },
     filename: (req, file, cb) => {
         cb(null, Date.now() + '-' + file.originalname);

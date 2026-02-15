@@ -8,7 +8,6 @@ import {
 } from "../controller/trendingcategory.controller.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
-// Purpose: Trending category routes for public viewing and admin management
 
 const router = express.Router();
 

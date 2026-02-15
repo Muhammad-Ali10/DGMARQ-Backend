@@ -8,7 +8,6 @@ import { getWalletBalance } from "../services/wallet.service.js";
 import { calculateBuyerHandlingFee } from "../services/handlingFee.service.js";
 import mongoose from "mongoose";
 
-// Purpose: Recalculates checkout amounts from items including buyer handling fee
 const recalculateCheckoutAmounts = async (checkout) => {
   let subtotal = 0;
   for (const item of checkout.items) {
@@ -69,18 +68,8 @@ const recalculateCheckoutAmounts = async (checkout) => {
   return checkout;
 };
 
-// Purpose: Creates a PayPal order from checkout or direct amount with security validation
 const createOrder = asyncHandler(async (req, res) => {
   const { checkoutId, amount, currency, items, discount, tax_total, shipping, handling } = req.body;
-
-  logger.debug('[PAYPAL ORDERS] Create order request received', {
-    hasCheckoutId: !!checkoutId,
-    checkoutId: checkoutId || 'MISSING',
-    hasAmount: !!amount,
-    hasItems: !!items,
-    bodyKeys: Object.keys(req.body || {}),
-  });
-
   if (checkoutId) {
     if (!mongoose.Types.ObjectId.isValid(checkoutId)) {
       return res.status(400).json({
@@ -135,7 +124,6 @@ const createOrder = asyncHandler(async (req, res) => {
       (checkout.subscriptionDiscount || 0) +
       (checkout.couponDiscount || 0);
 
-    // When wallet is used, charge only cardAmount on PayPal so capture amount matches expected
     const grandTotal = checkout.grandTotal ?? checkout.totalAmount;
     const cardAmount = checkout.cardAmount;
     const useExplicitAmount = cardAmount != null && grandTotal != null && cardAmount < grandTotal;
@@ -159,16 +147,6 @@ const createOrder = asyncHandler(async (req, res) => {
         ignoredFields: { amount, currency, items: items?.length, discount, tax_total, shipping, handling },
       });
     }
-
-    logger.debug('[PAYPAL ORDERS] Create order from checkoutId', {
-      checkoutId,
-      totalAmount: checkout.totalAmount,
-      cardAmount: checkout.cardAmount,
-      walletAmount: checkout.walletAmount,
-      itemCount: checkout.items.length,
-      currency: 'USD',
-    });
-
     try {
       const result = await createPayPalOrderForCheckout(orderData);
 
@@ -192,16 +170,6 @@ const createOrder = asyncHandler(async (req, res) => {
       });
     }
   }
-
-  logger.debug('[PAYPAL ORDERS] Create order request (legacy - amount from client)', {
-    url: req.originalUrl,
-    method: req.method,
-    amount,
-    currency,
-    itemCount: items?.length || 0,
-    hasDiscount: !!discount,
-  });
-
     if (!amount || amount <= 0) {
       return res.status(400).json({
         ok: false,
@@ -270,18 +238,9 @@ const createOrder = asyncHandler(async (req, res) => {
     }
 });
 
-// Purpose: Captures a PayPal order and creates DB order if checkout ID provided
 const captureOrder = asyncHandler(async (req, res) => {
   const { orderId } = req.params;
   const { checkoutId } = req.body;
-
-  logger.debug('[PAYPAL ORDERS] Capture order request', {
-    url: req.originalUrl,
-    method: req.method,
-    orderId,
-    hasCheckoutId: !!checkoutId,
-  });
-
   if (!orderId) {
     return res.status(400).json({
       ok: false,

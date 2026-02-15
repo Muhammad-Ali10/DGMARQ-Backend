@@ -17,6 +17,5 @@ const emailLogSchema = new Schema(
 emailLogSchema.index({ recipient: 1, status: 1 });
 emailLogSchema.index({ orderId: 1 });
 
-// Purpose: Tracks email delivery status and history for various notification types
 export const EmailLog = mongoose.model("EmailLog", emailLogSchema);
 

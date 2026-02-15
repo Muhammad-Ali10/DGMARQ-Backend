@@ -6,7 +6,6 @@ import { Checkout } from "../models/checkout.model.js";
 import { getWalletBalance } from "../services/wallet.service.js";
 import { logger } from "../utils/logger.js";
 
-// Purpose: Processes wallet payment for a checkout session
 const processWalletPayment = asyncHandler(async (req, res) => {
   const { checkoutId } = req.params;
   const userId = req.user._id;
@@ -60,12 +59,10 @@ const processWalletPayment = asyncHandler(async (req, res) => {
     throw new ApiError(400, `Insufficient wallet balance. Your balance is $${walletBalance.toFixed(2)}, but the total is $${amountToPay.toFixed(2)}`);
   }
 
-  // If checkout was created for PayPal/Card, allow switching to wallet when user has sufficient balance
   if (checkout.paymentMethod !== 'Wallet' || checkout.walletAmount !== amountToPay || checkout.cardAmount > 0) {
     if (checkout.paymentMethod === 'Wallet') {
       throw new ApiError(400, 'Checkout configuration mismatch. Wallet amount must equal total for wallet-only payment');
     }
-    // User wants to pay with wallet instead of PayPal/Card - update checkout to allow wallet payment
     checkout.paymentMethod = 'Wallet';
     checkout.walletAmount = amountToPay;
     checkout.cardAmount = 0;
@@ -111,7 +108,6 @@ const processWalletPayment = asyncHandler(async (req, res) => {
       stack: error.stack,
     });
 
-    // Return user-friendly error messages
     if (error instanceof ApiError) {
       throw error;
     }

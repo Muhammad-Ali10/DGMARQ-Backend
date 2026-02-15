@@ -1,7 +1,6 @@
 import { calculateFlashDealPrice } from '../services/flashdeal.service.js';
 import { calculateTrendingOfferDiscount } from '../services/trendingoffer.service.js';
 
-// Purpose: Calculates final product price with all applicable discounts
 export const calculateProductPrice = async (product) => {
   const originalPrice = product.price || 0;
   let discountedPrice = originalPrice;
@@ -50,7 +49,6 @@ export const calculateProductPrice = async (product) => {
   };
 };
 
-// Purpose: Calculates line total for a cart item
 export const calculateLineTotal = (unitPrice, qty) => {
   return (unitPrice || 0) * (qty || 0);
 };

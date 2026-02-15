@@ -3,7 +3,6 @@ import { Order } from "../models/order.model.js";
 import { CouponUsage } from "../models/couponUsage.model.js";
 import mongoose from "mongoose";
 
-// Purpose: Validates coupon code with enhanced rules including subscription exclusivity and usage limits
 export const validateCouponCode = async (code, orderAmount = 0, userId = null, productIds = [], sellerIds = [], hasSubscription = false) => {
   const coupon = await Coupon.findOne({ code: code.toUpperCase().trim() });
 
@@ -74,7 +73,6 @@ export const validateCouponCode = async (code, orderAmount = 0, userId = null, p
   return { valid: true, coupon };
 };
 
-// Purpose: Calculates discount amount based on coupon type (percentage or fixed)
 export const calculateDiscount = (coupon, orderAmount) => {
   if (coupon.discountType === "percentage") {
     return (orderAmount * coupon.discountValue) / 100;
@@ -83,7 +81,6 @@ export const calculateDiscount = (coupon, orderAmount) => {
   }
 };
 
-// Purpose: Applies coupon to an order, increments usage count, and tracks per-user usage
 export const applyCoupon = async (couponId, orderId, userId) => {
   const coupon = await Coupon.findById(couponId);
   if (!coupon) {
@@ -106,7 +103,6 @@ export const applyCoupon = async (couponId, orderId, userId) => {
   return coupon;
 };
 
-// Purpose: Retrieves coupon statistics including usage count and order statistics
 export const getCouponStats = async (couponId) => {
   const coupon = await Coupon.findById(couponId);
   if (!coupon) {

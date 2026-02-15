@@ -4,7 +4,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
-// Creates a new device with duplicate name checking
+/** Creates device with duplicate name check. */
 const createDevice = asyncHandler(async (req, res) => {
   const { name, isActive } = req.body;
 
@@ -24,7 +24,7 @@ const createDevice = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, device, "Device created successfully"));
 });
 
-// Retrieves all devices with pagination, search, and optional active status filtering
+/** Retrieves devices with pagination, search, and optional isActive filter. */
 const getDevices = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, search = "", isActive } = req.query;
 
@@ -54,7 +54,7 @@ const getDevices = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, result, "Devices fetched successfully"));
 });
 
-// Retrieves a single device by ID
+/** Retrieves device by ID. */
 const getDeviceById = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -73,7 +73,7 @@ const getDeviceById = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, device, "Device fetched successfully"));
 });
 
-// Updates a device by ID with name and active status
+/** Updates device name and active status. */
 const updateDevice = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { name, isActive } = req.body;
@@ -95,7 +95,7 @@ const updateDevice = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, device, "Device updated successfully"));
 });
 
-// Deletes a device by ID
+/** Deletes device by ID. */
 const deleteDevice = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -112,9 +112,7 @@ const deleteDevice = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, {}, "Device deleted successfully"));
 });
 
-
-
-// Toggles the active status of a device
+/** Toggles device active status. */
 const toggleDeviceStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) {

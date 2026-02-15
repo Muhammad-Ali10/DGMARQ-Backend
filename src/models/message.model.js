@@ -29,5 +29,4 @@ messageSchema.index({ conversationId: 1, sentAt: -1 });
 messageSchema.index({ conversationId: 1, receiverId: 1, isRead: 1 });
 messageSchema.index({ conversationId: 1, isDeleted: 1, sentAt: -1 });
 
-// Purpose: Stores chat messages between users in conversations
 export const Message = mongoose.model("Message", messageSchema);

@@ -27,7 +27,6 @@ const upcomingGamesSchema = new Schema(
   { timestamps: true }
 );
 
-// Purpose: Retrieves or creates the singleton upcoming games configuration document
 upcomingGamesSchema.statics.getOrCreate = async function () {
   let config = await this.findOne();
   if (!config) {
@@ -43,5 +42,4 @@ upcomingGamesSchema.index({ "products.productId": 1 });
 upcomingGamesSchema.index({ "products.order": 1 });
 upcomingGamesSchema.index({ updatedAt: -1 });
 
-// Purpose: Stores a curated list of upcoming game products for homepage display
 export const UpcomingGames = mongoose.model("UpcomingGames", upcomingGamesSchema);

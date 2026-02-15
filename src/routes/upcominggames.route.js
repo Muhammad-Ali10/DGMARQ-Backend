@@ -10,7 +10,6 @@ import {
 } from "../controller/upcominggames.controller.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
-// Purpose: Upcoming games routes for public viewing and admin configuration
 
 const router = express.Router();
 

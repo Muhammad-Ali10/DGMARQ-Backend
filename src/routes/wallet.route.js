@@ -7,7 +7,6 @@ import {
   getWalletTransactionsController,
 } from "../controller/wallet.controller.js";
 
-// Purpose: Wallet routes for balance and transaction retrieval
 
 const router = express.Router();
 

@@ -39,6 +39,5 @@ const trendingOfferSchema = new mongoose.Schema(
 trendingOfferSchema.index({ status: 1, startTime: 1, endTime: 1 });
 trendingOfferSchema.index({ products: 1, status: 1 });
 
-// Purpose: Represents time-limited discount offers applied to trending products
 export const TrendingOffer = mongoose.model("TrendingOffer", trendingOfferSchema);
 

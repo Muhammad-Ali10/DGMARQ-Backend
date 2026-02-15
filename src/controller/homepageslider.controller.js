@@ -8,7 +8,6 @@ import { getActiveSliders, validateSliderData } from "../services/homepageslider
 import { upload } from "../middlerwares/multer.middlerware.js";
 import { fileUploader } from "../utils/cloudinary.js";
 
-// Purpose: Creates a new homepage slider with image upload and product linking
 const createHomepageSlider = asyncHandler(async (req, res) => {
   const { title, productId, link, order, slideIndex } = req.body;
 
@@ -55,7 +54,6 @@ const createHomepageSlider = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all active homepage sliders for public display
 const getHomepageSliders = asyncHandler(async (req, res) => {
   const sliders = await getActiveSliders();
 
@@ -64,7 +62,6 @@ const getHomepageSliders = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves a specific homepage slider by its ID
 const getHomepageSliderById = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -83,7 +80,6 @@ const getHomepageSliderById = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Updates an existing homepage slider with new data or image
 const updateHomepageSlider = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { title, productId, link, order, isActive, slideIndex } = req.body;
@@ -148,7 +144,6 @@ const updateHomepageSlider = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Deletes a homepage slider by its ID
 const deleteHomepageSlider = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
@@ -168,7 +163,6 @@ const deleteHomepageSlider = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all homepage sliders with pagination for admin management
 const getAllHomepageSliders = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, isActive } = req.query;
 

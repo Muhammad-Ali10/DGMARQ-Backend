@@ -2,15 +2,32 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import session from "express-session";
+import helmet from "helmet";
+import compression from "compression";
 import passport from "./config/passport.config.js";
 import { errorHandler } from "./middlerwares/error.middlerware.js";
 import { enforceHTTPS, securityHeaders } from "./middlerwares/https.middlerware.js";
+import { apiLimiter } from "./middlerwares/rateLimit.middlerware.js";
 
-// Purpose: Create and configure Express application instance
 const app = express();
 
 app.set('trust proxy', 1);
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      frameSrc: ["'self'", "https://*.paypal.com", "https://*.paypalobjects.com"],
+      frameAncestors: ["'self'", "https://*.paypal.com", "https://*.paypalobjects.com"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://api-m.paypal.com", "https://api-m.sandbox.paypal.com"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
 app.use(securityHeaders);
+app.use(compression());
 app.use(enforceHTTPS);
 const corsOrigin = process.env.FRONTEND_URL || 'http://localhost:5173';
 const corsOrigins = [corsOrigin];
@@ -20,7 +37,7 @@ if (corsOrigin.startsWith('http://')) {
   corsOrigins.push(httpsOrigin);
 }
 
-// Purpose: Remove trailing slash from URL for consistent origin comparison
+/** Normalizes origin URL by removing trailing slash for CORS comparison. */
 const normalizeOrigin = (url) => {
   if (!url) return url;
   return url.replace(/\/$/, '');
@@ -55,9 +72,13 @@ app.use(
   })
 );
 
+import healthRouter from "./routes/health.route.js";
+app.use("/health", healthRouter);
+
 import webhookRouter from "./routes/webhook.route.js";
 app.use("/api/v1/webhook", webhookRouter);
 
+app.use("/api", apiLimiter);
 app.use(
   express.json({
     limit: "16kb",

@@ -10,7 +10,6 @@ import { User } from "../models/user.model.js";
 import { createNotification } from "../services/notification.service.js";
 import { uploadChatImageFromBuffer } from "../utils/cloudinary.js";
 
-// Purpose: Creates a new conversation between buyer and seller
 const createConversation = asyncHandler(async (req, res) => {
   const buyerId = req.user._id;
   const { sellerId, orderId, productId } = req.body;
@@ -93,7 +92,6 @@ const createConversation = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all conversations for the authenticated user
 const getConversations = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { role } = req.query;
@@ -132,7 +130,6 @@ const getConversations = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves messages for a conversation with cursor-based pagination
 const getMessages = asyncHandler(async (req, res) => {
   const { conversationId } = req.params;
   const userId = req.user._id;
@@ -243,7 +240,6 @@ const getMessages = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Sends a message in a conversation via REST endpoint
 const sendMessage = asyncHandler(async (req, res) => {
   const { conversationId, messageText, messageType = "text", attachment = null } = req.body;
   const senderId = req.user._id;
@@ -464,7 +460,6 @@ const sendImageMessage = asyncHandler(async (req, res) => {
   });
 });
 
-// Purpose: Marks all messages in a conversation as read for the user
 const markAsRead = asyncHandler(async (req, res) => {
   const { conversationId } = req.params;
   const userId = req.user._id;
@@ -478,7 +473,6 @@ const markAsRead = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Conversation not found");
   }
 
-  // Check if user is buyer or seller
   const isBuyer = conversation.buyerId.toString() === userId.toString();
   const isSeller = seller && conversation.sellerId.toString() === seller._id.toString();
 
@@ -516,7 +510,6 @@ const markAsRead = asyncHandler(async (req, res) => {
   }
 });
 
-// Purpose: Archives a conversation for the user
 const deleteConversation = asyncHandler(async (req, res) => {
   const { conversationId } = req.params;
   const userId = req.user._id;
@@ -551,7 +544,6 @@ const deleteConversation = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves the total unread message count for the user
 const getUnreadCount = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const seller = await Seller.findOne({ userId }).lean();

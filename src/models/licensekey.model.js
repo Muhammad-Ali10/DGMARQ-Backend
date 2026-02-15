@@ -37,5 +37,4 @@ const licenseKeySchema = new Schema(
 
 licenseKeySchema.index({ 'keys.isUsed': 1 });
 
-// Purpose: Stores license keys and account credentials linked to products for digital delivery
 export const LicenseKey = mongoose.model("LicenseKey", licenseKeySchema);

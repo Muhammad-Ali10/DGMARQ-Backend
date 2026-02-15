@@ -1,7 +1,6 @@
 import mongoose from "mongoose";
 import { logger } from "../utils/logger.js";
 
-// Purpose: Establish and manage MongoDB database connection with optimized settings
   const ConnectDB = async () => {
     try {
         const connectionOptions = {

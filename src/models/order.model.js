@@ -90,5 +90,4 @@ orderSchema.pre("save", function (next) {
   next();
 });
 
-// Purpose: Stores customer orders with items, payment details, and fulfillment status
 export const Order = mongoose.model("Order", orderSchema);

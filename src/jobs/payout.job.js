@@ -3,8 +3,7 @@ import Redis from 'ioredis';
 import { processScheduledPayouts } from '../services/payout.service.js';
 import { logger } from '../utils/logger.js';
 
-// Purpose: Creates Redis connection with proper password handling.
-// Only sends password when REDIS_URL includes authentication (avoids warning when server has no auth).
+/** Creates Redis connection. Sends password only when REDIS_URL has auth (avoids localhost warning). */
 const createRedisConnection = () => {
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
@@ -29,8 +28,6 @@ const createRedisConnection = () => {
     const port = parseInt(url.port) || 6379;
     const isLocalhost = host === 'localhost' || host === '127.0.0.1';
     const hasPasswordInUrl = url.password && url.password.trim() !== '';
-
-    // Don't send password for localhost – avoids "password was supplied" warning when local Redis has no auth
     const usePassword = hasPasswordInUrl && !isLocalhost;
 
     connectionOptions.host = host;
@@ -40,9 +37,6 @@ const createRedisConnection = () => {
       if (url.username && url.username.trim() !== '') {
         connectionOptions.username = url.username;
       }
-      logger.info('[REDIS] Connecting with credentials from REDIS_URL');
-    } else {
-      logger.info(`[REDIS] Connecting without password: ${host}:${port}`);
     }
     return new Redis(connectionOptions);
   } catch (error) {
@@ -55,16 +49,8 @@ const createRedisConnection = () => {
 
 const connection = createRedisConnection();
 
-connection.on('connect', () => {
-  logger.info('[REDIS] Connected successfully');
-});
-
 connection.on('error', (err) => {
   logger.error('[REDIS] Connection error:', err.message);
-});
-
-connection.on('ready', () => {
-  logger.info('[REDIS] Ready to accept commands');
 });
 
 export const payoutQueue = new Queue('payout-processing', { connection });
@@ -72,7 +58,6 @@ export const payoutQueue = new Queue('payout-processing', { connection });
 export const payoutWorker = new Worker(
   'payout-processing',
   async (job) => {
-    logger.info(`Processing payout job: ${job.id}`);
     const results = await processScheduledPayouts();
     return results;
   },
@@ -82,15 +67,11 @@ export const payoutWorker = new Worker(
   }
 );
 
-payoutWorker.on('completed', (job) => {
-  logger.info(`Payout job ${job.id} completed`);
-});
-
 payoutWorker.on('failed', (job, err) => {
   logger.error(`Payout job ${job.id} failed:`, err);
 });
 
-// Purpose: Schedules daily payout processing at midnight UTC
+/** Schedules daily payout processing at midnight UTC. */
 export const scheduleDailyPayouts = () => {
   payoutQueue.add(
     'process-scheduled-payouts',
@@ -106,10 +87,9 @@ export const scheduleDailyPayouts = () => {
       },
     }
   );
-  logger.info('Daily payout processing scheduled');
 };
 
-// Purpose: Triggers immediate payout processing for testing or manual runs
+/** Triggers immediate payout processing. */
 export const processPayoutsNow = async () => {
   const job = await payoutQueue.add('process-scheduled-payouts', {}, {
     attempts: 3,

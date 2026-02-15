@@ -1,4 +1,3 @@
-// Purpose: Device routes for creating, updating, toggling status, and deleting device entries
 import { Router } from "express";
 import { createDevice, updateDevice, getDevices, getDeviceById, deleteDevice, toggleDeviceStatus } from "../controller/device.controller.js";
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";

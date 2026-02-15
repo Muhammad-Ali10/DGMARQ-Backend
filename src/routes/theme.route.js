@@ -2,7 +2,6 @@ import { Router } from "express";
 import { createTheme, getThemes, updateTheme, deleteTheme  } from "../controller/theme.controller.js";
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
 
-// Purpose: Theme management routes for creating, updating, and deleting themes
 
 const router = Router();
 

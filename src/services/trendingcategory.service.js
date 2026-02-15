@@ -5,7 +5,6 @@ import { Order } from '../models/order.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import mongoose from 'mongoose';
 
-// Purpose: Gets trending categories with sales greater than zero for current month
 export const getTrendingCategories = async (limit = 6) => {
   const now = new Date();
   const currentMonth = now.getMonth() + 1;
@@ -27,7 +26,6 @@ export const getTrendingCategories = async (limit = 6) => {
   return validCategories;
 };
 
-// Purpose: Calculates and updates trending categories based on real sales data
 export const updateTrendingCategories = async () => {
   const now = new Date();
   const currentMonth = now.getMonth() + 1;

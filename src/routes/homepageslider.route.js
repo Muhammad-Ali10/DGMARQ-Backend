@@ -11,7 +11,6 @@ import {
 } from "../controller/homepageslider.controller.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
-// Purpose: Homepage slider routes for public display and admin management
 
 const router = express.Router();
 

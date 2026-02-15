@@ -5,7 +5,6 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
 
-// Purpose: Creates a new region with duplicate name checking
 const createRegion = asyncHandler(async (req, res) => {
   const { name } = req.body;
 
@@ -29,7 +28,6 @@ const createRegion = asyncHandler(async (req, res) => {
 
 
 
-// Purpose: Updates a region by ID with name validation
 const updateRegion = asyncHandler(async (req, res) => {
   const { regionId } = req.params;
   const { name } = req.body;
@@ -58,7 +56,6 @@ const updateRegion = asyncHandler(async (req, res) => {
 });
 
 
-// Purpose: Deletes a region by ID
 const deleteRegion = asyncHandler(async (req, res) => {
   const { regionId } = req.params;
 
@@ -79,7 +76,6 @@ const deleteRegion = asyncHandler(async (req, res) => {
 
 
 
-// Purpose: Retrieves all regions with pagination and optional search filtering
 const getRegions = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, search = "" } = req.query;
 
@@ -108,7 +104,6 @@ const getRegions = asyncHandler(async (req, res) => {
 
 
 
-// Purpose: Retrieves a single region by ID
 const getRegionById = asyncHandler(async (req, res) => {
   const { regionId } = req.params;
 

@@ -11,5 +11,4 @@ const modeSchema = new mongoose.Schema(
 
 modeSchema.plugin(mongooseAggregatePaginate);
 
-// Purpose: Stores game mode types for product classification
 export const Mode = mongoose.model("Mode", modeSchema);

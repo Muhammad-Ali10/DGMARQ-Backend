@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import path from "path";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
@@ -16,8 +17,9 @@ import { getSellerBalance, adjustPayoutForRefund, blockPayoutsForOrder } from ".
 import { processRefund as processPayPalRefund } from "../services/payment.service.js";
 import { Transaction } from "../models/transaction.model.js";
 import { invalidateReviewsForOrder, calculateAverageRating } from "../services/review.service.js";
+import { notifySellerOfRefund, notifySellerOfRefundRequested } from "../services/refundNotification.service.js";
 
-// Helper: append refund history entry
+/** Appends entry to refund history (append-only). */
 const pushRefundHistory = (refund, actor, action, previousStatus, newStatus, notes) => {
   if (!refund.refundHistory) refund.refundHistory = [];
   refund.refundHistory.push({
@@ -30,14 +32,14 @@ const pushRefundHistory = (refund, actor, action, previousStatus, newStatus, not
   });
 };
 
-// Order completion date (for refund/payout windows). Fallback: from payout holdUntil - 15 days, or order.updatedAt
+/** Returns order completion date for refund/payout window calc. Fallback: orderCompletedAt, updatedAt, createdAt. */
 const getOrderCompletionDate = (order) => {
   if (order?.orderCompletedAt) return new Date(order.orderCompletedAt);
   if (order?.updatedAt) return new Date(order.updatedAt);
   return order?.createdAt ? new Date(order.createdAt) : null;
 };
 
-// Refunds allowed only within REFUND_WINDOW_DAYS of order completion
+/** Checks if order is within refund window (REFUND_WINDOW_DAYS of completion). */
 const isWithinRefundWindow = (order) => {
   const completedAt = getOrderCompletionDate(order);
   if (!completedAt) return false;
@@ -46,7 +48,7 @@ const isWithinRefundWindow = (order) => {
   return daysSince <= REFUND_WINDOW_DAYS;
 };
 
-// True if order's payout is still held (within PAYOUT_HOLD_DAYS; money with platform, not yet released to seller)
+/** Returns true if order payout is still held (within PAYOUT_HOLD_DAYS). */
 const isPayoutHeldForOrder = async (orderId, session = null) => {
   const order = await Order.findById(orderId).session(session).select("orderCompletedAt updatedAt createdAt").lean();
   if (!order) return false;
@@ -57,29 +59,23 @@ const isPayoutHeldForOrder = async (orderId, session = null) => {
   return daysSince <= PAYOUT_HOLD_DAYS;
 };
 
-const PAYPAL_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CREATE_REFUND_TYPES = ["WALLET", "ORIGINAL_PAYMENT"];
 
-// Purpose: Creates a return/refund request (license-key level; refund method WALLET or ORIGINAL_PAYMENT)
+/** Creates refund request. Validates order, keys, evidence. Notifies seller. */
 const createReturnRefund = asyncHandler(async (req, res) => {
-  const { orderId, productId, reason, licenseKeyIds: rawLicenseKeyIds, evidenceFiles, refundMethod: rawRefundMethod, customerPayPalEmail } = req.body;
+  const { orderId, productId, reason, licenseKeyIds: rawLicenseKeyIds, evidenceFiles, refundMethod: rawRefundMethod, refundType } = req.body;
   const userId = req.user._id;
 
   if (!orderId || !productId || !reason) {
+    logger.warn("[createReturnRefund] Missing required fields", { hasOrderId: !!orderId, hasProductId: !!productId, hasReason: !!reason });
     throw new ApiError(400, "Order ID, product ID, and reason are required");
   }
-  const refundMethod = (rawRefundMethod || "WALLET").toUpperCase();
-  if (!REFUND_METHOD.includes(refundMethod)) {
-    throw new ApiError(400, "refundMethod must be WALLET or MANUAL");
+
+  const refundMethod = (rawRefundMethod || refundType || "WALLET").toString().toUpperCase().trim();
+  if (!CREATE_REFUND_TYPES.includes(refundMethod)) {
+    throw new ApiError(400, `refundType must be one of: ${CREATE_REFUND_TYPES.join(", ")}`);
   }
-  const isManualRefund = refundMethod === "ORIGINAL_PAYMENT" || refundMethod === "MANUAL";
-  if (isManualRefund) {
-    if (!customerPayPalEmail || typeof customerPayPalEmail !== "string" || !customerPayPalEmail.trim()) {
-      throw new ApiError(400, "PayPal email is required for refund to original payment method");
-    }
-    if (!PAYPAL_EMAIL_REGEX.test(customerPayPalEmail.trim())) {
-      throw new ApiError(400, "Invalid PayPal email format");
-    }
-  }
+
   const evidenceUrls = Array.isArray(evidenceFiles) ? evidenceFiles.filter((u) => typeof u === "string" && u.trim()) : [];
   if (evidenceUrls.length === 0) {
     throw new ApiError(400, "At least one evidence image is required. Please upload error screenshots or proof.");
@@ -97,6 +93,7 @@ const createReturnRefund = asyncHandler(async (req, res) => {
   }).populate("items.productId", "productType sellerId");
 
   if (!order) {
+    logger.warn("[createReturnRefund] Order not found or not eligible", { orderId, userId: userId?.toString() });
     throw new ApiError(404, "Order not found or not eligible for refund. Only completed or partially refunded orders can request more refunds.");
   }
 
@@ -106,6 +103,7 @@ const createReturnRefund = asyncHandler(async (req, res) => {
     const message = daysSince >= PAYOUT_HOLD_DAYS
       ? "Refund period expired. Payout already released."
       : "Refund period expired. Refunds are allowed only within 10 days of order completion.";
+    logger.warn("[createReturnRefund] Refund window expired", { orderId, daysSince, REFUND_WINDOW_DAYS });
     throw new ApiError(400, message);
   }
 
@@ -156,6 +154,7 @@ const createReturnRefund = asyncHandler(async (req, res) => {
     licenseKeyIds: { $in: licenseKeyIds.map((id) => new mongoose.Types.ObjectId(id)) },
   });
   if (existingForSameKey) {
+    logger.warn("[createReturnRefund] Duplicate refund attempt", { orderId, productId, userId: userId?.toString() });
     throw new ApiError(400, "A refund request already exists for one or more of these license keys");
   }
 
@@ -166,13 +165,11 @@ const createReturnRefund = asyncHandler(async (req, res) => {
   const actualProductId = orderItem.productId?._id || orderItem.productId;
   const actualOrderId = order._id;
   const actualSellerId = orderItem.sellerId?._id || orderItem.sellerId;
-
-  // Refund amount = order item unit price × number of keys requested (so customer/admin see correct amount before approval)
   const unitPrice = orderItem.unitPrice ?? 0;
   const keyCount = licenseKeyIds.length;
   const requestedRefundAmount = keyCount > 0 ? Math.round(unitPrice * keyCount * 100) / 100 : (orderItem.lineTotal ?? 0);
-
-  // All refund requests go to admin; seller cannot approve or reject
+  const isOriginalPayment = refundMethod === "ORIGINAL_PAYMENT" || refundMethod === "MANUAL";
+  const storedRefundMethod = isOriginalPayment ? "ORIGINAL_PAYMENT" : "WALLET";
   const initialStatus = "ADMIN_REVIEW";
   const initialStage = "ADMIN_REVIEW";
 
@@ -185,21 +182,29 @@ const createReturnRefund = asyncHandler(async (req, res) => {
     status: initialStatus,
     currentStage: initialStage,
     refundAmount: requestedRefundAmount,
-    refundMethod: isManualRefund ? (refundMethod === "MANUAL" ? "ORIGINAL_PAYMENT" : refundMethod) : "WALLET",
-    customerPayPalEmail: isManualRefund ? customerPayPalEmail.trim() : null,
+    refundMethod: storedRefundMethod,
+    customerPayPalEmail: null,
     licenseKeyIds: licenseKeyIds.map((id) => new mongoose.Types.ObjectId(id)),
     evidenceFiles: evidenceUrls,
-    sellerReviewStartedAt: isManualRefund ? null : new Date(),
+    sellerReviewStartedAt: isOriginalPayment ? null : new Date(),
     refundHistory: [
       {
         actor: "customer",
-        action: isManualRefund ? "REFUND_REQUESTED_ADMIN_HANDLED" : "REFUND_REQUESTED",
+        action: isOriginalPayment ? "REFUND_REQUESTED_ADMIN_HANDLED" : "REFUND_REQUESTED",
         previousStatus: null,
         newStatus: initialStatus,
-        notes: isManualRefund ? "Customer requested refund to original payment (manual). Admin will review." : `Refund requested for ${licenseKeyIds.length} key(s). Admin will review.`,
+        notes: isOriginalPayment ? "Customer requested refund to original payment (manual). Admin will review." : `Refund requested for ${licenseKeyIds.length} key(s). Admin will review.`,
         timestamp: new Date(),
       },
     ],
+  });
+
+  logger.info("[createReturnRefund] Refund request created", {
+    refundId: returnRefund._id?.toString(),
+    orderId: actualOrderId?.toString(),
+    productId: actualProductId?.toString(),
+    refundMethod: storedRefundMethod,
+    keyCount: licenseKeyIds.length,
   });
 
   await auditLog(userId, "REFUND_REQUESTED", `Refund requested for order ${actualOrderId}, product ${actualProductId}`, {
@@ -209,13 +214,18 @@ const createReturnRefund = asyncHandler(async (req, res) => {
     sellerId: actualSellerId,
     licenseKeyIds: returnRefund.licenseKeyIds,
   });
+  const orderForNotify = await Order.findById(actualOrderId).select("_id orderNumber userId").lean();
+  if (orderForNotify) {
+    notifySellerOfRefundRequested({ order: orderForNotify, refund: returnRefund }).catch((err) =>
+      logger.error("[createReturnRefund] Refund-requested notification failed", { refundId: returnRefund._id, err: err.message })
+    );
+  }
 
   return res.status(201).json(
     new ApiResponse(201, returnRefund, "Refund request created successfully. Admin will review.")
   );
 });
 
-// Purpose: Retrieves user's refund requests with pagination and optional status filtering
 const getUserRefunds = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { page = 1, limit = 10, status } = req.query;
@@ -248,7 +258,6 @@ const getUserRefunds = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves a refund request by ID with access verification
 const getRefundById = asyncHandler(async (req, res) => {
   const { refundId } = req.params;
   const userId = req.user._id;
@@ -283,7 +292,6 @@ const getRefundById = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves all refund requests with pagination and optional status filtering for admin
 const getAllRefunds = asyncHandler(async (req, res) => {
   if (!req.user.roles?.includes("admin")) {
     throw new ApiError(403, "Only admins can view all refund requests");
@@ -320,7 +328,6 @@ const getAllRefunds = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Updates refund status and processes refund if approved (admin only)
 const updateRefundStatus = asyncHandler(async (req, res) => {
   if (!req.user.roles?.includes("admin")) {
     throw new ApiError(403, "Only admins can update refund status");
@@ -358,13 +365,13 @@ const updateRefundStatus = asyncHandler(async (req, res) => {
   };
 
   if (refund.status === "COMPLETED" || refund.status === "completed") {
+    logger.warn("[updateRefundStatus] Attempt to modify completed refund", { refundId, status: refund.status });
     throw new ApiError(400, "This refund has already been completed and cannot be modified");
   }
   if (["rejected", "ADMIN_REJECTED", "SELLER_REJECTED"].includes(refund.status) && !["rejected", "ADMIN_REJECTED"].includes(status)) {
     throw new ApiError(400, "A rejected refund cannot be changed to another status");
   }
 
-  // Admin approves refund (full authority; can jump at ANY time from PENDING, SELLER_REVIEW, SELLER_APPROVED, or ADMIN_REVIEW). Skip for ORIGINAL_PAYMENT (use mark-manual-refund).
   if (status === "ADMIN_APPROVED") {
     if (refund.refundMethod === "ORIGINAL_PAYMENT") {
       throw new ApiError(400, "Use 'Mark as Refunded (Manual)' after sending the refund via PayPal. This refund is to original payment method.");
@@ -510,7 +517,6 @@ const updateRefundStatus = asyncHandler(async (req, res) => {
   }
 });
 
-// Purpose: Cancels a pending refund request (user only)
 const cancelRefund = asyncHandler(async (req, res) => {
   const { refundId } = req.params;
   const userId = req.user._id;
@@ -544,7 +550,6 @@ const cancelRefund = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Execute refund (deduct seller, credit customer, mark keys). Returns { hold: true } if seller balance insufficient.
 const processRefundExecution = async (refund, actorUserId, actorRole) => {
   const getObjectId = (field) => {
     if (!field) return null;
@@ -639,10 +644,8 @@ const processRefundExecution = async (refund, actorUserId, actorRole) => {
       }
     }
 
-    // Commission proportional to refunded keys (platform commission reversed for refunded portion)
     const commissionPerUnit = qty > 0 ? (orderItem.lineTotal - sellerEarningTotal) / qty : 0;
     const refundCommission = keyCount > 0 ? Math.round(commissionPerUnit * keyCount * 100) / 100 : 0;
-    // Partial refund BEFORE payout: reduce scheduled payout (escrow). AFTER payout: ledger deduction (negative Payout).
     if (payoutHeld) {
       await adjustPayoutForRefund(
         order._id,
@@ -654,7 +657,6 @@ const processRefundExecution = async (refund, actorUserId, actorRole) => {
         session
       );
     } else {
-      // Refund after payout released: deduct from seller (ledger-style); getSellerBalance includes negative payouts
       await Payout.create([{
         sellerId,
         orderId: order._id,
@@ -716,13 +718,10 @@ const processRefundExecution = async (refund, actorUserId, actorRole) => {
         order.items[itemIndex].refundedAt = new Date();
       }
     }
-
-    // Order status derived ONLY from license-key state: 0 refunded keys → COMPLETED, some → PARTIALLY_REFUNDED, all → REFUNDED
     const allItemsRefunded = order.items.every((item) => item.refunded);
     if (allItemsRefunded) {
       order.paymentStatus = "refunded";
       order.orderStatus = "REFUNDED";
-      // Full refund before payout: cancel all scheduled payouts for this order (escrow rule – no release)
       await blockPayoutsForOrder(order._id, "Order fully refunded – payout cancelled", session);
     } else {
       order.orderStatus = "PARTIALLY_REFUNDED";
@@ -736,8 +735,6 @@ const processRefundExecution = async (refund, actorUserId, actorRole) => {
 
     await session.commitTransaction();
     session.endSession();
-
-    // Full order refund: invalidate reviews so they are excluded from product/seller ratings (marketplace rule)
     if (allItemsRefunded) {
       try {
         const inv = await invalidateReviewsForOrder(orderId);
@@ -767,6 +764,14 @@ const processRefundExecution = async (refund, actorUserId, actorRole) => {
       timestamp: new Date(),
       notes: payoutHeld ? "Deducted from seller pending (payout still held)" : "Deducted from seller available balance",
     });
+    notifySellerOfRefund({
+      order,
+      refund,
+      refundType: allItemsRefunded ? "full" : "partial",
+      refundAmount,
+      payoutStatus,
+    }).catch((err) => logger.error("Refund notification failed", { refundId: refund._id, err: err.message }));
+
     return { walletBalance: finalWalletBalance };
   } catch (err) {
     if (session.inTransaction()) await session.abortTransaction();
@@ -775,7 +780,6 @@ const processRefundExecution = async (refund, actorUserId, actorRole) => {
   }
 };
 
-// Purpose: Complete manual PayPal refund (admin sent refund via PayPal dashboard). Deduct seller, invalidate keys, NO wallet credit.
 const processManualRefundCompletion = async (refund, adminUserId, manualRefundReference = null) => {
   const getObjectId = (field) => {
     if (!field) return null;
@@ -874,12 +878,10 @@ const processManualRefundCompletion = async (refund, adminUserId, manualRefundRe
         order.items[itemIndex].refundedAt = new Date();
       }
     }
-    // Order status derived ONLY from license-key state: all keys refunded → REFUNDED, else → PARTIALLY_REFUNDED
     const allItemsRefunded = order.items.every((item) => item.refunded);
     if (allItemsRefunded) {
       order.paymentStatus = "refunded";
       order.orderStatus = "REFUNDED";
-      // Full refund: cancel all scheduled payouts for this order
       await blockPayoutsForOrder(order._id, "Order fully refunded – payout cancelled", session);
     } else {
       order.orderStatus = "PARTIALLY_REFUNDED";
@@ -894,8 +896,6 @@ const processManualRefundCompletion = async (refund, adminUserId, manualRefundRe
 
     await session.commitTransaction();
     session.endSession();
-
-    // Full order refund: invalidate reviews so they are excluded from ratings (marketplace rule)
     if (allItemsRefunded) {
       try {
         const inv = await invalidateReviewsForOrder(orderId);
@@ -922,6 +922,14 @@ const processManualRefundCompletion = async (refund, adminUserId, manualRefundRe
       timestamp: new Date(),
       notes: "Refund sent manually via PayPal; seller balance adjusted; keys invalidated.",
     });
+    notifySellerOfRefund({
+      order,
+      refund,
+      refundType: allItemsRefunded ? "full" : "partial",
+      refundAmount,
+      payoutStatus: payoutHeld ? "HELD" : "RELEASED",
+    }).catch((err) => logger.error("Refund notification failed (manual)", { refundId: refund._id, err: err.message }));
+
     return {};
   } catch (err) {
     if (session.inTransaction()) await session.abortTransaction();
@@ -930,7 +938,6 @@ const processManualRefundCompletion = async (refund, adminUserId, manualRefundRe
   }
 };
 
-// Purpose: List refund requests for the authenticated seller (first-level review)
 const getSellerRefunds = asyncHandler(async (req, res) => {
   const seller = await Seller.findOne({ userId: req.user._id }).select("_id");
   if (!seller) {
@@ -958,17 +965,14 @@ const getSellerRefunds = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Seller cannot approve refunds; only admin can. Seller can submit optional feedback via sellerSubmitFeedback.
 const sellerApproveRefund = asyncHandler(async (req, res) => {
   throw new ApiError(403, "Only admin can approve refunds. You may leave optional feedback for admin review.");
 });
 
-// Purpose: Seller cannot reject refunds; only admin can. Seller can submit optional feedback via sellerSubmitFeedback.
 const sellerRejectRefund = asyncHandler(async (req, res) => {
   throw new ApiError(403, "Only admin can reject refunds. You may leave optional feedback for admin review.");
 });
 
-// Purpose: Seller submits optional feedback (advisory only; does not change refund status or block admin)
 const sellerSubmitFeedback = asyncHandler(async (req, res) => {
   const seller = await Seller.findOne({ userId: req.user._id }).select("_id");
   if (!seller) throw new ApiError(403, "Seller profile not found");
@@ -1008,7 +1012,6 @@ const sellerSubmitFeedback = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Customer escalates seller-rejected refund to admin
 const escalateToAdmin = asyncHandler(async (req, res) => {
   const { refundId } = req.params;
   const userId = req.user._id;
@@ -1044,7 +1047,6 @@ const escalateToAdmin = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Retrieves customer's completed orders for refund dropdown
 const getCompletedOrdersForRefund = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
@@ -1100,7 +1102,6 @@ const getCompletedOrdersForRefund = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Returns license keys for an order item so customer can select which key(s) to refund
 const getOrderItemLicenseKeysForRefund = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { orderId, productId } = req.query;
@@ -1193,7 +1194,6 @@ const getOrderItemLicenseKeysForRefund = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Upload evidence images for refund; returns URLs to send in createRefundRequest body
 const uploadRefundEvidence = asyncHandler(async (req, res) => {
   const files = req.files || [];
   if (files.length === 0) {
@@ -1204,7 +1204,8 @@ const uploadRefundEvidence = asyncHandler(async (req, res) => {
   for (const file of files) {
     if (file.path) {
       try {
-        const result = await fileUploader(file.path);
+        const absolutePath = path.resolve(file.path);
+        const result = await fileUploader(absolutePath);
         urls.push(result.url || result.secure_url);
       } catch (e) {
         logger.warn("Refund evidence upload failed for one file", { path: file.path, error: e.message });
@@ -1217,7 +1218,6 @@ const uploadRefundEvidence = asyncHandler(async (req, res) => {
   );
 });
 
-// Purpose: Add a message to refund-specific chat (customer, admin; seller only when admin requested input)
 const addRefundMessage = asyncHandler(async (req, res) => {
   const { refundId } = req.params;
   const { message } = req.body;
@@ -1263,7 +1263,6 @@ const addRefundMessage = asyncHandler(async (req, res) => {
   return res.status(201).json(new ApiResponse(201, { message: added }, "Message added"));
 });
 
-// Purpose: Get refund chat messages (customer, seller, admin with access)
 const getRefundMessages = asyncHandler(async (req, res) => {
   const { refundId } = req.params;
   if (!mongoose.Types.ObjectId.isValid(refundId)) throw new ApiError(400, "Invalid refund ID");
@@ -1288,7 +1287,6 @@ const getRefundMessages = asyncHandler(async (req, res) => {
   return res.status(200).json(new ApiResponse(200, { messages }, "Refund messages retrieved"));
 });
 
-// Purpose: Admin requests seller clarification (optional verification)
 const requestSellerInput = asyncHandler(async (req, res) => {
   if (!req.user.roles?.includes("admin")) throw new ApiError(403, "Only admins can request seller input");
   const { refundId } = req.params;
@@ -1314,7 +1312,6 @@ const requestSellerInput = asyncHandler(async (req, res) => {
   return res.status(200).json(new ApiResponse(200, refund, "Seller has been notified. They can reply in the refund chat."));
 });
 
-// Purpose: Admin marks manual PayPal refund as completed (after sending refund via PayPal dashboard). Prevents double completion.
 const markManualRefund = asyncHandler(async (req, res) => {
   if (!req.user.roles?.includes("admin")) {
     throw new ApiError(403, "Only admins can mark manual refund as completed");
@@ -1327,6 +1324,7 @@ const markManualRefund = asyncHandler(async (req, res) => {
   const refund = await ReturnRefund.findById(refundId).populate("orderId").populate("productId", "productType name");
   if (!refund) throw new ApiError(404, "Refund request not found");
   if (refund.status === "COMPLETED" || refund.status === "completed") {
+    logger.warn("[markManualRefund] Duplicate completion attempt", { refundId });
     throw new ApiError(400, "Refund already completed. Cannot mark as refunded again.");
   }
   if (refund.refundMethod !== "ORIGINAL_PAYMENT") {
