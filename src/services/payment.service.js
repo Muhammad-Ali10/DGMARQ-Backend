@@ -42,16 +42,17 @@ const client = () => {
 export async function paypalErrorHandler(response, context = 'paypal_api') {
   const statusCode = response.status;
   let body = null;
+  let rawText = '';
   try {
-    const text = await response.text();
-    body = text ? JSON.parse(text) : null;
+    rawText = await response.text();
+    body = rawText ? JSON.parse(rawText) : null;
   } catch {
     body = null;
   }
   if (body && typeof body === 'object') {
     const debugId = body.debug_id ?? body.details?.[0]?.issue;
-    const message = body.message || body.details?.[0]?.description || body.details?.[0]?.issue || 'Unknown PayPal error';
-    const code = body.name || body.details?.[0]?.issue;
+    const message = body.message || body.error_description || body.details?.[0]?.description || body.details?.[0]?.issue || body.error || 'Unknown PayPal error';
+    const code = body.name || body.error || body.details?.[0]?.issue;
     logger.error(`[PayPal] ${context} failed`, {
       statusCode,
       debug_id: debugId,
@@ -66,10 +67,17 @@ export async function paypalErrorHandler(response, context = 'paypal_api') {
       statusCode,
     };
   }
-  logger.error(`[PayPal] ${context} failed (non-JSON)`, { statusCode });
-  return {
-    message: `PayPal API error: ${response.statusText || statusCode}`,
+  // Log raw response when non-JSON (helps debug PayPal auth issues)
+  const rawPreview = rawText ? rawText.substring(0, 500) : '(empty)';
+  logger.error(`[PayPal] ${context} failed (non-JSON response)`, {
     statusCode,
+    rawBodyPreview: rawPreview,
+    paypalBaseUrl: process.env.PAYPAL_API_BASE || (process.env.PAYPAL_ENV === 'production' ? 'https://api-m.paypal.com' : 'sandbox'),
+  });
+  return {
+    message: `PayPal API error: ${response.statusText || statusCode}. Response may not be JSON.`,
+    statusCode,
+    debug_id: undefined,
   };
 }
 
@@ -769,6 +777,13 @@ export async function generateAccessToken() {
     const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
     const baseUrl = getPayPalBaseUrl();
 
+    // Debug: log config (no secrets) to help diagnose production auth issues
+    logger.info('[PayPal] OAuth token request', {
+      baseUrl,
+      paypalEnv: process.env.PAYPAL_ENV,
+      clientIdPrefix: clientId ? clientId.substring(0, 8) + '...' : 'missing',
+    });
+
     const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
     const response = await fetch(`${baseUrl}/v1/oauth2/token`, {
@@ -789,6 +804,9 @@ export async function generateAccessToken() {
         logger.error('[PayPal] Token generation failed: invalid credentials or wrong environment', {
           debug_id: err.debug_id,
           statusCode: err.statusCode,
+          baseUrl,
+          paypalEnv: process.env.PAYPAL_ENV,
+          clientIdPrefix: clientId ? clientId.substring(0, 10) + '...' : 'missing',
         });
         throw new Error(
           `PayPal authentication failed. Check PAYPAL_CLIENT_ID/PAYPAL_CLIENT_SECRET and that they match PAYPAL_ENV (sandbox vs production). debug_id: ${err.debug_id || 'n/a'}`

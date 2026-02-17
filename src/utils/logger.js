@@ -10,6 +10,9 @@ class Logger {
   success(message, ...args) {
     if (isDevelopment) {
       console.log(`✅ [SUCCESS] ${message}`, ...args);
+    } else if (typeof message === 'string' && (message.includes('MongoDB') || message.includes('Server is running') || message.includes('running at port'))) {
+      // Always log critical startup messages
+      console.log(`✅ [SUCCESS] ${message}`, ...args);
     }
   }
 
