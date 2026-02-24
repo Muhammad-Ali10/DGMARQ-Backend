@@ -205,6 +205,69 @@ export const payoutNotificationEmailTemplate = (payout, seller) => {
   `;
 };
 
+export const sellerNewOrderEmailTemplate = ({
+  sellerName,
+  orderId,
+  orderDate,
+  buyerName,
+  shippingAddress,
+  dashboardUrl,
+  items,
+}) => {
+  const rowsHtml = (items || []).map((item) => `
+    <tr>
+      <td style="padding: 10px; border-bottom: 1px solid #ddd;">${item.productName}</td>
+      <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: center;">${item.quantity}</td>
+    </tr>
+  `).join('');
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 640px; margin: 0 auto; padding: 20px; }
+        .header { background: #4a90e2; color: #fff; padding: 18px; text-align: center; border-radius: 5px 5px 0 0; }
+        .content { background: #fff; padding: 20px; border: 1px solid #ddd; }
+        table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+        .cta { display: inline-block; margin-top: 14px; padding: 10px 16px; background: #4a90e2; color: #fff; text-decoration: none; border-radius: 4px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1 style="margin: 0;">New Order Received</h1>
+        </div>
+        <div class="content">
+          <p>Hello ${sellerName || 'Seller'},</p>
+          <p>You have received a new order for your product(s).</p>
+          <p><strong>Order ID:</strong> ${orderId}</p>
+          <p><strong>Buyer Name:</strong> ${buyerName || 'Guest Buyer'}</p>
+          <p><strong>Order Date:</strong> ${orderDate}</p>
+          <p><strong>Shipping Address:</strong> ${shippingAddress || 'Not applicable'}</p>
+
+          <table>
+            <thead>
+              <tr style="background: #f5f5f5;">
+                <th style="padding: 10px; text-align: left;">Product Name</th>
+                <th style="padding: 10px; text-align: center;">Quantity</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+
+          <a href="${dashboardUrl}" class="cta">View Orders</a>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
 // refundMethod: WALLET | ORIGINAL_PAYMENT (processing method)
 export const refundIssuedSellerEmailTemplate = (orderNumber, productName, buyerName, refundAmount, refundType, payoutStatus, refundMethod = 'WALLET') => {
   const refundTypeLabel = refundType === 'full' ? 'Full' : 'Partial';

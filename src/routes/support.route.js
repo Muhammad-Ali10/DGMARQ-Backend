@@ -4,6 +4,7 @@ import {
   getMySupportChats,
   getSupportChatMessages,
   sendSupportMessageHandler,
+  sendSupportImageMessageHandler,
   closeSupportChatHandler,
   getAllSupportChatsAdmin,
   assignAdminToChatHandler,
@@ -11,6 +12,7 @@ import {
 } from "../controller/support.controller.js";
 import { verifyJWT, authorizeRoles, optionalJWT } from "../middlerwares/authmiddlerware.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
+import { uploadChatImage } from "../middlerwares/multer.middlerware.js";
 
 
 const router = express.Router();
@@ -21,6 +23,7 @@ router.post("/", optionalJWT, createSupportChat);
 router.get("/", optionalJWT, getMySupportChats);
 router.get("/:chatId/messages", optionalJWT, getSupportChatMessages);
 router.post("/:chatId/message", optionalJWT, sendSupportMessageHandler);
+router.post("/:chatId/message/image", optionalJWT, uploadChatImage, sendSupportImageMessageHandler);
 router.patch("/:chatId/close", verifyJWT, closeSupportChatHandler);
 
 router.get("/admin/chats", verifyJWT, authorizeRoles("admin"), getAllSupportChatsAdmin);

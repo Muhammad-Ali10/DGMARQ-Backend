@@ -20,6 +20,7 @@ import { schedulePayout } from "../services/payout.service.js";
 import { applyCoupon } from "../services/coupon.service.js";
 import { checkStockAfterAssignment } from "../services/stockNotification.service.js";
 import { debitWallet } from "../services/wallet.service.js";
+import { queueSellerOrderNotifications } from "../services/sellerOrderNotification.service.js";
 import { Transaction } from "../models/transaction.model.js";
 import { calculateBuyerHandlingFee, assertValidHandlingFeeConfig } from "../services/handlingFee.service.js";
 import { computeOrderRevenue, computeItemRevenue, logRevenueVerification } from "../services/orderRevenue.service.js";
@@ -391,6 +392,7 @@ const createWalletOrder = async (checkoutId, userId, req) => {
           await queueEmail('license_key', { orderId: createdOrder._id, userId: user._id });
           await notifyOrderCreated(user._id, createdOrder);
         }
+        await queueSellerOrderNotifications(createdOrder._id);
       } catch (emailError) {
         logger.error('[WALLET ORDER] Failed to queue emails (non-critical):', emailError);
       }
@@ -1016,6 +1018,12 @@ const createOrder = asyncHandler(async (req, res) => {
         req.ip || req.headers?.['x-forwarded-for'] || req.socket?.remoteAddress || null,
         req.headers?.['user-agent'] || null
       );
+    }
+
+    try {
+      await queueSellerOrderNotifications(createdOrder._id);
+    } catch (sellerEmailError) {
+      logger.error('Failed to queue seller order notifications', sellerEmailError);
     }
 
     if (isGuestCheckout) {

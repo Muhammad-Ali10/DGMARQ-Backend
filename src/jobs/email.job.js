@@ -1,7 +1,7 @@
 import { Queue, Worker } from 'bullmq';
 import mongoose from 'mongoose';
 import { connection } from './payout.job.js';
-import { sendLicenseKeyEmail, sendLicenseKeyEmailToGuest, sendOrderConfirmation, sendPayoutNotification } from '../services/email.service.js';
+import { sendLicenseKeyEmail, sendLicenseKeyEmailToGuest, sendOrderConfirmation, sendPayoutNotification, sendSellerNewOrderEmail } from '../services/email.service.js';
 import { Order } from '../models/order.model.js';
 import { User } from '../models/user.model.js';
 import { Payout } from '../models/payout.model.js';
@@ -48,7 +48,7 @@ if (isRedisAvailable) {
   logger.warn('Redis not configured - emails will be sent directly (synchronously)');
 }
 
-/** Dispatches email by type: license_key, license_key_guest, order_confirmation, payout_notification. */
+/** Dispatches email by type: license_key, license_key_guest, order_confirmation, payout_notification, seller_new_order. */
 const processEmailJob = async (type, data) => {
   switch (type) {
     case 'license_key':
@@ -132,6 +132,45 @@ const processEmailJob = async (type, data) => {
       
       await sendPayoutNotification(payout, payout.sellerId, sellerUser);
       break;
+
+    case 'seller_new_order':
+      if (!data.orderId || !mongoose.Types.ObjectId.isValid(data.orderId)) {
+        throw new Error(`Invalid orderId: ${data.orderId}`);
+      }
+      if (!data.sellerId || !mongoose.Types.ObjectId.isValid(data.sellerId)) {
+        throw new Error(`Invalid sellerId: ${data.sellerId}`);
+      }
+
+      const sellerOrder = await Order.findById(data.orderId)
+        .populate('items.productId', 'name')
+        .populate('userId', 'name');
+      if (!sellerOrder) {
+        throw new Error(`Order not found: ${data.orderId}`);
+      }
+
+      const seller = await Seller.findById(data.sellerId).populate('userId', 'name email');
+      if (!seller) {
+        throw new Error(`Seller not found: ${data.sellerId}`);
+      }
+      if (!seller.userId?.email) {
+        throw new Error(`Seller user email not found for seller: ${data.sellerId}`);
+      }
+
+      const sellerItems = (sellerOrder.items || [])
+        .filter((item) => item.sellerId && item.sellerId.toString() === data.sellerId.toString())
+        .map((item) => ({
+          productName: item.productId?.name || 'Product',
+          quantity: item.qty || 0,
+        }));
+
+      await sendSellerNewOrderEmail({
+        order: sellerOrder,
+        sellerUser: seller.userId,
+        seller,
+        buyerName: sellerOrder.userId?.name || 'Guest Buyer',
+        sellerItems,
+      });
+      break;
       
     default:
       throw new Error(`Unknown email type: ${type}`);
@@ -139,7 +178,7 @@ const processEmailJob = async (type, data) => {
 };
 
 /** Queues email job; falls back to direct send if Redis unavailable. */
-export const queueEmail = async (type, data) => {
+export const queueEmail = async (type, data, options = {}) => {
   if (!isRedisAvailable || !emailQueue) {
     try {
       await processEmailJob(type, data);
@@ -152,6 +191,7 @@ export const queueEmail = async (type, data) => {
 
   try {
     const job = await emailQueue.add(type, { type, data }, {
+      ...(options.jobId ? { jobId: options.jobId } : {}),
       attempts: 3,
       backoff: {
         type: 'exponential',

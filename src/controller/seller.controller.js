@@ -449,7 +449,11 @@ const getPublicSellerProfile = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Seller not found");
   }
 
-  const [productCount, reviewStats] = await Promise.all([
+  const sellerObjectId = new mongoose.Types.ObjectId(seller._id);
+
+  // Sales stats: completed orders only, exclude refunded. Uses index (orderStatus, paymentStatus).
+  // Optional: cache salesStats per sellerId (e.g. Redis, TTL 5–15 min) if profile traffic is very high.
+  const [productCount, reviewStats, salesStats] = await Promise.all([
     Product.countDocuments({ sellerId: seller._id, status: "active" }),
     Review.aggregate([
       {
@@ -463,7 +467,7 @@ const getPublicSellerProfile = asyncHandler(async (req, res) => {
       { $unwind: "$product" },
       {
         $match: {
-          "product.sellerId": new mongoose.Types.ObjectId(seller._id),
+          "product.sellerId": sellerObjectId,
           isHidden: false,
           isInvalidated: { $ne: true },
           $or: [
@@ -481,9 +485,45 @@ const getPublicSellerProfile = asyncHandler(async (req, res) => {
         },
       },
     ]),
+    Order.aggregate([
+      {
+        $match: {
+          orderStatus: "completed",
+          paymentStatus: { $ne: "refunded" },
+        },
+      },
+      { $unwind: "$items" },
+      {
+        $match: {
+          "items.sellerId": sellerObjectId,
+          "items.refunded": { $ne: true },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalProductsSold: { $sum: "$items.qty" },
+          orderIds: { $addToSet: "$_id" },
+          totalRevenue: { $sum: "$items.lineTotal" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          totalProductsSold: 1,
+          totalOrdersCompleted: { $size: "$orderIds" },
+          totalRevenue: 1,
+        },
+      },
+    ]),
   ]);
 
   const stats = reviewStats[0] || { averageRating: 0, totalReviews: 0 };
+  const sales = salesStats[0] || {
+    totalProductsSold: 0,
+    totalOrdersCompleted: 0,
+    totalRevenue: 0,
+  };
 
   const sellerProfile = {
     _id: seller._id,
@@ -505,6 +545,10 @@ const getPublicSellerProfile = asyncHandler(async (req, res) => {
       totalProducts: productCount,
       averageRating: stats.averageRating || 0,
       totalReviews: stats.totalReviews || 0,
+      totalProductsSold: sales.totalProductsSold ?? 0,
+      totalOrdersCompleted: sales.totalOrdersCompleted ?? 0,
+      totalActiveProducts: productCount,
+      totalRevenue: sales.totalRevenue ?? 0,
     },
   };
 

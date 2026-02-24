@@ -27,7 +27,8 @@ import {
   fetchProducts,
   updateValidateMongoIds,
   updateCheckModelRefs,
-  updateCheckDuplicateRecord
+  updateCheckDuplicateRecord,
+  deleteProductWithRelatedCleanup,
 } from "../services/product.service.js";
 
 const createProduct = asyncHandler(async (req, res) => {
@@ -208,6 +209,9 @@ const updateProductImages = asyncHandler(async (req, res) => {
 
 const deleteProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const userId = req.user?._id || req.user;
+  const userRoles = Array.isArray(req.user?.roles) ? req.user?.roles : (req.user?.role ? [req.user.role] : []);
+  const isAdmin = userRoles.some((r) => String(r).toLowerCase() === "admin");
 
   if (!mongoose.Types.ObjectId.isValid(id))
     throw new ApiError(400, "Invalid product ID");
@@ -215,11 +219,27 @@ const deleteProduct = asyncHandler(async (req, res) => {
   const product = await Product.findById(id);
   if (!product) throw new ApiError(404, "Product not found");
 
-  for (const pid of product.publicId) {
-    await fileDelete(pid);
+  if (isAdmin) {
+    // Admin can delete any product.
+  } else {
+    const seller = await Seller.findOne({ userId });
+    if (!seller) {
+      throw new ApiError(403, "Seller account not found. Only the product owner or an admin can delete this product.");
+    }
+    const productSellerId = product.sellerId?._id?.toString() ?? product.sellerId?.toString();
+    const sellerIdStr = seller._id.toString();
+    if (productSellerId !== sellerIdStr) {
+      throw new ApiError(403, "You do not have permission to delete this product. Only the product owner or an admin can delete it.");
+    }
   }
 
-  await product.deleteOne();
+  if (product.publicId && product.publicId.length > 0) {
+    for (const pid of product.publicId) {
+      await fileDelete(pid);
+    }
+  }
+
+  await deleteProductWithRelatedCleanup(id);
 
   return res
     .status(200)

@@ -22,7 +22,7 @@ import {
 import { verifyJWT } from "../middlerwares/authmiddlerware.js";
 import { authorizeRoles } from "../middlerwares/authmiddlerware.js";
 import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
-import { upload } from "../middlerwares/multer.middlerware.js";
+import { upload, uploadRefundChatImages } from "../middlerwares/multer.middlerware.js";
 
 
 const router = express.Router();
@@ -40,7 +40,7 @@ router.get("/:refundId", verifyJWT, getRefundById);
 router.delete("/:refundId", verifyJWT, cancelRefund);
 
 router.get("/:refundId/messages", verifyJWT, getRefundMessages);
-router.post("/:refundId/messages", verifyJWT, addRefundMessage);
+router.post("/:refundId/messages", verifyJWT, uploadRefundChatImages, addRefundMessage);
 
 router.get("/seller/list", verifyJWT, authorizeRoles("seller"), getSellerRefunds);
 router.patch("/seller/:refundId/approve", verifyJWT, authorizeRoles("seller"), sellerApproveRefund);

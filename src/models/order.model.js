@@ -73,6 +73,7 @@ const orderSchema = new Schema(
 );
 
 orderSchema.index({ userId: 1, paymentStatus: 1, orderStatus: 1 });
+orderSchema.index({ orderStatus: 1, paymentStatus: 1 });
 
 orderSchema.pre("save", function (next) {
   if (this.isGuest) {

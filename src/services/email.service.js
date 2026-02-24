@@ -1,6 +1,13 @@
 import nodemailer from 'nodemailer';
 import mongoose from 'mongoose';
-import { licenseKeyEmailTemplate, orderConfirmationEmailTemplate, payoutNotificationEmailTemplate, refundIssuedSellerEmailTemplate, refundRequestedSellerEmailTemplate } from '../utils/emailTemplates.js';
+import {
+  licenseKeyEmailTemplate,
+  orderConfirmationEmailTemplate,
+  payoutNotificationEmailTemplate,
+  refundIssuedSellerEmailTemplate,
+  refundRequestedSellerEmailTemplate,
+  sellerNewOrderEmailTemplate,
+} from '../utils/emailTemplates.js';
 import { EmailLog } from '../models/emailLog.model.js';
 import { decryptKey } from '../utils/encryption.js';
 import { LicenseKey } from '../models/licensekey.model.js';
@@ -545,6 +552,103 @@ export const sendRefundIssuedEmailToSeller = async ({
       status: 'failed',
       error: error.message,
     });
+    throw error;
+  }
+};
+
+export const sendSellerNewOrderEmail = async ({
+  order,
+  sellerUser,
+  seller,
+  buyerName,
+  sellerItems,
+}) => {
+  const recipient = sellerUser?.email;
+  const orderId = order?._id;
+  const subject = 'New Order Received';
+
+  if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+    throw new Error(`Invalid order ID for seller email: ${orderId}`);
+  }
+  if (!recipient) {
+    throw new Error(`Missing seller email for seller ${seller?._id || 'unknown'}`);
+  }
+  if (!Array.isArray(sellerItems) || sellerItems.length === 0) {
+    throw new Error(`No seller items found for seller ${seller?._id || 'unknown'} in order ${orderId}`);
+  }
+
+  const orderObjectId = new mongoose.Types.ObjectId(orderId);
+
+  // Idempotency guard: one successful seller-order email per order/recipient.
+  const existingSuccess = await EmailLog.findOne({
+    recipient,
+    orderId: orderObjectId,
+    template: 'sellerNewOrder',
+    status: 'sent',
+  }).lean();
+  if (existingSuccess) {
+    return { success: true, skipped: true, reason: 'already_sent' };
+  }
+
+  try {
+    const transporter = createTransporter();
+    const normalizedItems = sellerItems.map((item) => ({
+      productName: item.productName || 'Product',
+      quantity: Number(item.quantity) || 0,
+    }));
+
+    const shippingAddress = order?.shippingAddress
+      || order?.shipping?.address
+      || order?.shippingDetails
+      || order?.deliveryAddress
+      || null;
+
+    const html = sellerNewOrderEmailTemplate({
+      sellerName: seller?.shopName || sellerUser?.name || 'Seller',
+      orderId: String(orderId),
+      orderDate: new Date(order.createdAt || Date.now()).toLocaleString('en-US', { timeZone: 'UTC' }) + ' UTC',
+      buyerName: buyerName || 'Guest Buyer',
+      shippingAddress: shippingAddress || 'Not applicable',
+      dashboardUrl: `${process.env.FRONTEND_URL || ''}/seller/orders`,
+      items: normalizedItems,
+    });
+
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_FROM || 'noreply@dgmarq.com',
+      to: recipient,
+      subject,
+      html,
+    });
+
+    await EmailLog.create({
+      recipient,
+      subject,
+      template: 'sellerNewOrder',
+      status: 'sent',
+      orderId: orderObjectId,
+      sentAt: new Date(),
+    });
+
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    logger.error('Failed to send new-order email to seller', {
+      orderId: String(orderId),
+      sellerId: seller?._id ? String(seller._id) : null,
+      recipient,
+      error: error.message,
+    });
+
+    await EmailLog.create({
+      recipient,
+      subject,
+      template: 'sellerNewOrder',
+      status: 'failed',
+      orderId: orderObjectId,
+      error: error.message,
+    }).catch((logError) => {
+      logger.error('Failed to create EmailLog for seller new-order email failure', logError);
+    });
+
     throw error;
   }
 };

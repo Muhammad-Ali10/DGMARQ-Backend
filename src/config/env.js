@@ -60,6 +60,8 @@ export function validateEnv() {
   logger.info('[Config] Environment validated', {
     NODE_ENV: process.env.NODE_ENV,
     PORT: process.env.PORT,
+    PAYPAL_CLIENT_ID: process.env.PAYPAL_CLIENT_ID,
+    PAYPAL_CLIENT_SECRET: process.env.PAYPAL_CLIENT_SECRET,
     hasRedis: !!process.env.REDIS_URL,
     paypalEnv: process.env.PAYPAL_ENV || 'sandbox',
   });

@@ -4,7 +4,7 @@ const emailLogSchema = new Schema(
   {
     recipient: { type: String, required: true, index: true },
     subject: { type: String, required: true },
-    template: { type: String, enum: ['licenseKey', 'orderConfirmation', 'payoutNotification', 'passwordReset', 'emailVerification', 'emailVerificationOTP', 'outOfStock'], required: true },
+    template: { type: String, enum: ['licenseKey', 'orderConfirmation', 'payoutNotification', 'passwordReset', 'emailVerification', 'emailVerificationOTP', 'outOfStock', 'sellerNewOrder'], required: true },
     status: { type: String, enum: ['pending', 'sent', 'failed'], default: 'pending', index: true },
     orderId: { type: Schema.Types.ObjectId, ref: 'Order', default: null },
     keyId: { type: Schema.Types.ObjectId, ref: 'LicenseKey', default: null },

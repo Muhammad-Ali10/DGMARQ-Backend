@@ -153,7 +153,7 @@ export const getSupportMessages = async (chatId, userId = null, isAdmin = false)
 };
 
 export const sendSupportMessage = async (data) => {
-  const { chatId, userId, isAdmin, messageText, messageType = 'text', guestName, guestEmail } = data;
+  const { chatId, userId, isAdmin, messageText, messageType = 'text', attachment = null, guestName, guestEmail } = data;
 
   const chat = await SupportChat.findById(chatId);
   if (!chat) {
@@ -189,11 +189,13 @@ export const sendSupportMessage = async (data) => {
     senderType,
     messageText,
     messageType,
+    attachment: attachment || undefined,
     isRead: false,
     sentAt: new Date(),
   });
 
-  chat.lastMessage = messageText;
+  const lastMessagePreview = messageType === 'image' ? (messageText || 'Image') : messageText;
+  chat.lastMessage = lastMessagePreview;
   chat.lastMessageAt = new Date();
   
   if (isAdmin) {

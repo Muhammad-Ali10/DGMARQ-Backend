@@ -5,6 +5,16 @@ import { fileDeleteFromCloud } from "../utils/deleteFilesFromCloud.js";
 import { Product } from "../models/product.model.js";
 import { Category } from "../models/category.model.js";
 import { Type } from "../models/type.model.js";
+import { Cart } from "../models/cart.model.js";
+import { Wishlist } from "../models/wishlist.model.js";
+import { LicenseKey } from "../models/licensekey.model.js";
+import { Review } from "../models/review.model.js";
+import { FlashDeal } from "../models/flashdeal.model.js";
+import { TrendingOffer } from "../models/trendingoffer.model.js";
+import { BestSeller } from "../models/bestseller.model.js";
+import { HomepageSlider } from "../models/homepageslider.model.js";
+import { Coupon } from "../models/coupon.model.js";
+import { Conversation } from "../models/conversation.model.js";
 
 
 
@@ -459,4 +469,51 @@ export const fetchProducts = async (query, user = null) => {
 
 
   return result;
+};
+
+/**
+ * Permanently deletes a product and cleans all related references.
+ * Use after authorization (admin or seller-owner) and after deleting cloud images.
+ * Handles: carts, wishlists, license keys, reviews, flash deals, trending offers,
+ * best sellers, homepage slider, coupons, conversations.
+ * Orders and return/refunds are left as historical references.
+ * @param {mongoose.Types.ObjectId} productId - The product _id to delete
+ */
+export const deleteProductWithRelatedCleanup = async (productId) => {
+  const id = mongoose.Types.ObjectId.isValid(productId)
+    ? new mongoose.Types.ObjectId(productId)
+    : productId;
+
+  await Promise.all([
+    Cart.updateMany(
+      { "items.productId": id },
+      { $pull: { items: { productId: id } } }
+    ),
+    Wishlist.updateMany(
+      { "products.productId": id },
+      { $pull: { products: { productId: id } } }
+    ),
+    LicenseKey.deleteOne({ productId: id }),
+    Review.deleteMany({ productId: id }),
+    FlashDeal.deleteMany({ productId: id }),
+    TrendingOffer.updateMany(
+      { products: id },
+      { $pull: { products: id } }
+    ),
+    BestSeller.deleteMany({ productId: id }),
+    HomepageSlider.updateMany(
+      { productId: id },
+      { $set: { productId: null } }
+    ),
+    Coupon.updateMany(
+      { productIds: id },
+      { $pull: { productIds: id } }
+    ),
+    Conversation.updateMany(
+      { productId: id },
+      { $set: { productId: null } }
+    ),
+  ]);
+
+  await Product.deleteOne({ _id: id });
 };

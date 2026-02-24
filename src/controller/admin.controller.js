@@ -15,6 +15,8 @@ import { processScheduledPayouts } from "../services/payout.service.js";
 import { PlatformSettings } from "../models/platform.model.js";
 import { SELLER_STATUS } from "../constants.js";
 import { auditLog } from "../services/audit.service.js";
+import { fileDelete } from "../utils/deletecloudinary.js";
+import { deleteProductWithRelatedCleanup } from "../services/product.service.js";
 import { SeoSettings } from "../models/seoSettings.model.js";
 import { validateMetaTitle, validateMetaDescription } from "../utils/sanitize.js";
 import { getHandlingFeeConfig, validateHandlingFeeConfig } from "../services/handlingFee.service.js";
@@ -409,6 +411,51 @@ const getAllProducts = asyncHandler(async (req, res) => {
         pages: Math.ceil(total / limit),
       },
     }, "Products retrieved successfully")
+  );
+});
+
+/**
+ * Admin-only: Permanently delete any product by ID.
+ * Validates productId, removes cloud images, cleans related data (carts, wishlists, keys, reviews, etc.),
+ * then deletes the product. Audit log records admin, product, and timestamp.
+ */
+const deleteProductByAdmin = asyncHandler(async (req, res) => {
+  const { productId } = req.params;
+  const adminId = req.user._id;
+
+  if (!mongoose.Types.ObjectId.isValid(productId)) {
+    throw new ApiError(400, "Invalid product ID");
+  }
+
+  const product = await Product.findById(productId);
+  if (!product) {
+    throw new ApiError(404, "Product not found");
+  }
+
+  const productName = product.name;
+  const productIdStr = product._id.toString();
+
+  if (product.publicId && product.publicId.length > 0) {
+    for (const pid of product.publicId) {
+      try {
+        await fileDelete(pid);
+      } catch (err) {
+        logger.warn(`Failed to delete cloud image ${pid} for product ${productIdStr}`, err);
+      }
+    }
+  }
+
+  await deleteProductWithRelatedCleanup(productId);
+  const deletedAt = new Date();
+
+  await auditLog(adminId, "ADMIN_PRODUCT_DELETED", `Admin deleted product: ${productName} (${productIdStr})`, {
+    productId: productIdStr,
+    productName,
+    deletedAt,
+  });
+
+  return res.status(200).json(
+    new ApiResponse(200, { productId: productIdStr, deletedAt }, "Product deleted successfully")
   );
 });
 
@@ -1002,6 +1049,7 @@ export {
   blockSeller,
   approveProduct,
   rejectProduct,
+  deleteProductByAdmin,
   getPendingProducts,
   getAllProducts,
   getProductDetails,

@@ -18,6 +18,7 @@ import { processRefund as processPayPalRefund } from "../services/payment.servic
 import { Transaction } from "../models/transaction.model.js";
 import { invalidateReviewsForOrder, calculateAverageRating } from "../services/review.service.js";
 import { notifySellerOfRefund, notifySellerOfRefundRequested } from "../services/refundNotification.service.js";
+import { uploadChatImageFromBuffer } from "../utils/cloudinary.js";
 
 /** Appends entry to refund history (append-only). */
 const pushRefundHistory = (refund, actor, action, previousStatus, newStatus, notes) => {
@@ -1221,10 +1222,12 @@ const uploadRefundEvidence = asyncHandler(async (req, res) => {
 const addRefundMessage = asyncHandler(async (req, res) => {
   const { refundId } = req.params;
   const { message } = req.body;
+  const files = Array.isArray(req.files) ? req.files : [];
   const userId = req.user._id;
   if (!mongoose.Types.ObjectId.isValid(refundId)) throw new ApiError(400, "Invalid refund ID");
-  if (!message || typeof message !== "string" || !message.trim()) {
-    throw new ApiError(400, "Message is required");
+  const messageText = typeof message === "string" ? message.trim() : "";
+  if (!messageText && files.length === 0) {
+    throw new ApiError(400, "Message text or at least one image is required");
   }
   const refund = await ReturnRefund.findById(refundId);
   if (!refund) throw new ApiError(404, "Refund request not found");
@@ -1245,10 +1248,25 @@ const addRefundMessage = asyncHandler(async (req, res) => {
   }
 
   if (!refund.refundMessages) refund.refundMessages = [];
+  let attachments = [];
+  if (files.length > 0) {
+    try {
+      const uploaded = await Promise.all(
+        files.map((file) => uploadChatImageFromBuffer(file.buffer))
+      );
+      attachments = uploaded
+        .filter((result) => !!result?.url)
+        .map((result) => ({ url: result.url, type: "image" }));
+    } catch (err) {
+      throw new ApiError(400, err?.message || "Failed to upload image attachments");
+    }
+  }
+
   refund.refundMessages.push({
     senderId: userId,
     senderRole,
-    message: message.trim(),
+    message: messageText,
+    attachments,
     createdAt: new Date(),
   });
   if (senderRole === "seller") refund.sellerRepliedAt = new Date();
@@ -1282,6 +1300,7 @@ const getRefundMessages = asyncHandler(async (req, res) => {
     senderRole: m.senderRole,
     senderName: m.senderId?.name,
     message: m.message,
+    attachments: Array.isArray(m.attachments) ? m.attachments : [],
     createdAt: m.createdAt,
   }));
   return res.status(200).json(new ApiResponse(200, { messages }, "Refund messages retrieved"));

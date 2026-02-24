@@ -9,13 +9,14 @@ import {
   blockSeller,
   approveProduct,
   rejectProduct,
+  deleteProductByAdmin,
   getPendingProducts,
   getAllProducts,
   getProductDetails,
   getAllPayouts,
   processPayout,
   getAllUsers,
-  banUser, 
+  banUser,
   getDashboardStats,
   moderateChat,
   getCommissionRate,
@@ -46,6 +47,7 @@ router.route("/product/:productId").get(getProductDetails);
 router.route("/product/:productId/featured").patch(updateProductFeaturedSettings);
 router.route("/products/pending").get(getPendingProducts);
 router.route("/products").get(getAllProducts);
+router.route("/products/:productId").delete(deleteProductByAdmin);
 
 router.route("/payouts").get(getAllPayouts);
 router.route("/payout/:payoutId/process").post(processPayout);

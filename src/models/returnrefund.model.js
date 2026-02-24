@@ -23,7 +23,19 @@ const refundMessageSchema = new Schema(
   {
     senderId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     senderRole: { type: String, enum: ["customer", "seller", "admin"], required: true },
-    message: { type: String, required: true },
+    message: { type: String, default: "" },
+    attachments: {
+      type: [
+        new Schema(
+          {
+            url: { type: String, required: true, trim: true },
+            type: { type: String, enum: ["image"], default: "image" },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
     createdAt: { type: Date, default: Date.now },
   },
   { _id: true }

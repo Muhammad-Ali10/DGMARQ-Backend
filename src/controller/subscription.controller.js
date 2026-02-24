@@ -160,7 +160,7 @@ const getSubscriptionPlans = asyncHandler(async (req, res) => {
 
   const plan = {
     name: 'DGMARQ+',
-    displayName: 'DGMarket Plus',
+    displayName: 'DGMARQ Plus',
     price: subscriptionPrice,
     currency: 'EUR',
     duration: 'monthly',

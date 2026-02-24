@@ -15,6 +15,7 @@ import {
   closeSupportChat,
 } from "../services/support.service.js";
 import { auditLog } from "../services/audit.service.js";
+import { uploadChatImageFromBuffer } from "../utils/cloudinary.js";
 
 const createSupportChat = asyncHandler(async (req, res) => {
   const userId = req.user?._id || null;
@@ -145,6 +146,55 @@ const sendSupportMessageHandler = asyncHandler(async (req, res) => {
   );
 });
 
+const sendSupportImageMessageHandler = asyncHandler(async (req, res) => {
+  const { chatId } = req.params;
+  const userId = req.user?._id || null;
+  const isAdmin = req.user?.roles?.includes('admin') || false;
+  const messageText = (req.body?.messageText || '').trim() || 'Image';
+  const imageFile = req.file;
+  const { guestName, guestEmail, guestSessionId } = req.body || {};
+
+  if (!mongoose.Types.ObjectId.isValid(chatId)) {
+    throw new ApiError(400, "Invalid chat ID");
+  }
+
+  if (!imageFile?.buffer) {
+    throw new ApiError(400, "Image file is required");
+  }
+
+  const userIdentifier = userId || guestSessionId;
+
+  let result;
+  try {
+    result = await uploadChatImageFromBuffer(imageFile.buffer);
+  } catch (err) {
+    throw new ApiError(400, err?.message || "Image upload failed");
+  }
+
+  const message = await sendSupportMessage({
+    chatId,
+    userId: userIdentifier,
+    isAdmin,
+    messageText,
+    messageType: 'image',
+    attachment: result.url,
+    guestName,
+    guestEmail,
+  });
+
+  const populatedMessage = await SupportMessage.findById(message._id)
+    .populate("senderId", "name email profileImage");
+
+  if (req.app.get('io')) {
+    const io = req.app.get('io');
+    io.to(`support_chat:${chatId}`).emit('support_message', populatedMessage);
+  }
+
+  return res.status(201).json(
+    new ApiResponse(201, populatedMessage, "Message sent successfully")
+  );
+});
+
 const closeSupportChatHandler = asyncHandler(async (req, res) => {
   const { chatId } = req.params;
   const userId = req.user._id;
@@ -251,6 +301,7 @@ export {
   getMySupportChats,
   getSupportChatMessages,
   sendSupportMessageHandler,
+  sendSupportImageMessageHandler,
   closeSupportChatHandler,
   getAllSupportChatsAdmin,
   assignAdminToChatHandler,
