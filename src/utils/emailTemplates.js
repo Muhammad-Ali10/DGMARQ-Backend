@@ -345,3 +345,175 @@ export const refundRequestedSellerEmailTemplate = (orderNumber, productName, ref
   `;
 };
 
+export const sellerProfileSubmissionAdminEmailTemplate = ({
+  sellerFullName,
+  sellerEmail,
+  storeName,
+  submittedDocuments = [],
+  submittedAt,
+}) => {
+  const docsHtml = submittedDocuments.length
+    ? `<ul>${submittedDocuments.map((doc) => `<li><a href="${doc}" target="_blank" rel="noopener noreferrer">${doc}</a></li>`).join("")}</ul>`
+    : "<p>No documents were attached.</p>";
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 640px; margin: 0 auto; padding: 20px; }
+        .header { background: #0d6efd; color: #fff; padding: 18px; border-radius: 6px 6px 0 0; }
+        .content { border: 1px solid #ddd; border-top: none; padding: 20px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header"><h2 style="margin:0;">New Seller Profile Submission</h2></div>
+        <div class="content">
+          <p><strong>Seller full name:</strong> ${sellerFullName}</p>
+          <p><strong>Email:</strong> ${sellerEmail}</p>
+          <p><strong>Store name:</strong> ${storeName}</p>
+          <p><strong>Submission date/time:</strong> ${submittedAt}</p>
+          <h4>Submitted documents</h4>
+          ${docsHtml}
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+export const sellerProfileSubmissionSellerEmailTemplate = ({ sellerName, storeName }) => `
+  <!DOCTYPE html>
+  <html>
+  <head><meta charset="utf-8"></head>
+  <body style="font-family: Arial, sans-serif; color:#333;">
+    <div style="max-width:640px;margin:0 auto;padding:20px;">
+      <h2>Seller Profile Submitted</h2>
+      <p>Hello ${sellerName},</p>
+      <p>We have received your seller profile for <strong>${storeName}</strong>.</p>
+      <p>Our admin team will review your details and contact you after the review is complete.</p>
+      <p>Thank you for joining DGMARQ.</p>
+    </div>
+  </body>
+  </html>
+`;
+
+export const sellerProfileApprovedEmailTemplate = ({ sellerName, storeName, nextStepsUrl }) => `
+  <!DOCTYPE html>
+  <html>
+  <head><meta charset="utf-8"></head>
+  <body style="font-family: Arial, sans-serif; color:#333;">
+    <div style="max-width:640px;margin:0 auto;padding:20px;">
+      <h2>Your Seller Profile Has Been Approved</h2>
+      <p>Congratulations ${sellerName}!</p>
+      <p>Your seller profile for <strong>${storeName}</strong> has been approved.</p>
+      <p>Next steps: start adding products and set up your seller storefront.</p>
+      <p><a href="${nextStepsUrl}">Go to Seller Dashboard</a></p>
+    </div>
+  </body>
+  </html>
+`;
+
+export const sellerProfileRejectedEmailTemplate = ({ sellerName, storeName, reason }) => `
+  <!DOCTYPE html>
+  <html>
+  <head><meta charset="utf-8"></head>
+  <body style="font-family: Arial, sans-serif; color:#333;">
+    <div style="max-width:640px;margin:0 auto;padding:20px;">
+      <h2>Your Seller Profile Has Been Rejected</h2>
+      <p>Hello ${sellerName},</p>
+      <p>Your seller profile for <strong>${storeName}</strong> was not approved at this time.</p>
+      ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : "<p>No specific reason was provided.</p>"}
+      <p>You can update your details and submit again.</p>
+    </div>
+  </body>
+  </html>
+`;
+
+export const supportTicketCreatedAdminEmailTemplate = ({
+  ticketId,
+  userName,
+  userEmail,
+  subject,
+  message,
+  createdAt,
+}) => `
+  <!DOCTYPE html>
+  <html>
+  <head><meta charset="utf-8"></head>
+  <body style="font-family: Arial, sans-serif; color:#333;">
+    <div style="max-width:640px;margin:0 auto;padding:20px;">
+      <h2>New Support Ticket Created</h2>
+      <p><strong>Ticket ID:</strong> ${ticketId}</p>
+      <p><strong>User name:</strong> ${userName}</p>
+      <p><strong>User email:</strong> ${userEmail}</p>
+      <p><strong>Subject:</strong> ${subject}</p>
+      <p><strong>Message:</strong> ${message}</p>
+      <p><strong>Created date:</strong> ${createdAt}</p>
+    </div>
+  </body>
+  </html>
+`;
+
+export const refundRequestAdminEmailTemplate = (details) => `
+  <!DOCTYPE html>
+  <html>
+  <head><meta charset="utf-8"></head>
+  <body style="font-family: Arial, sans-serif; color:#333;">
+    <div style="max-width:700px;margin:0 auto;padding:20px;">
+      <h2>New Refund/Return Request</h2>
+      <p><strong>Refund Request ID:</strong> ${details.refundRequestId}</p>
+      <p><strong>Order ID:</strong> ${details.orderId}</p>
+      <p><strong>Product Name:</strong> ${details.productName}</p>
+      <p><strong>Product ID:</strong> ${details.productId}</p>
+      <p><strong>Seller Name:</strong> ${details.sellerName}</p>
+      <p><strong>Seller ID:</strong> ${details.sellerId}</p>
+      <p><strong>Customer Name:</strong> ${details.customerName}</p>
+      <p><strong>Customer ID:</strong> ${details.customerId}</p>
+      <p><strong>Refund Reason:</strong> ${details.refundReason}</p>
+      <p><strong>Order Date:</strong> ${details.orderDate}</p>
+      <p><strong>Refund Request Date:</strong> ${details.refundRequestDate}</p>
+      <p><strong>Payment ID:</strong> ${details.paymentId || "N/A"}</p>
+      <p><strong>Refund Amount:</strong> $${Number(details.refundAmount || 0).toFixed(2)}</p>
+    </div>
+  </body>
+  </html>
+`;
+
+export const refundDecisionCustomerEmailTemplate = ({ approved, customerName, refundId, amount, reason }) => `
+  <!DOCTYPE html>
+  <html>
+  <head><meta charset="utf-8"></head>
+  <body style="font-family: Arial, sans-serif; color:#333;">
+    <div style="max-width:640px;margin:0 auto;padding:20px;">
+      <h2>${approved ? "Your Refund Request Was Approved" : "Your Refund Request Was Rejected"}</h2>
+      <p>Hello ${customerName},</p>
+      <p>Refund Request ID: <strong>${refundId}</strong></p>
+      <p>Status: <strong>${approved ? "Approved" : "Rejected"}</strong></p>
+      ${approved ? `<p>Refund amount: <strong>$${Number(amount || 0).toFixed(2)}</strong></p>` : ""}
+      ${!approved && reason ? `<p><strong>Rejection reason:</strong> ${reason}</p>` : ""}
+    </div>
+  </body>
+  </html>
+`;
+
+export const refundDecisionSellerEmailTemplate = ({ approved, sellerName, refundId, amount, reason }) => `
+  <!DOCTYPE html>
+  <html>
+  <head><meta charset="utf-8"></head>
+  <body style="font-family: Arial, sans-serif; color:#333;">
+    <div style="max-width:640px;margin:0 auto;padding:20px;">
+      <h2>${approved ? "A Refund Request Was Approved" : "A Refund Request Was Rejected"}</h2>
+      <p>Hello ${sellerName},</p>
+      <p>Refund Request ID: <strong>${refundId}</strong></p>
+      <p>Status: <strong>${approved ? "Approved" : "Rejected"}</strong></p>
+      ${approved ? `<p>Refund amount: <strong>$${Number(amount || 0).toFixed(2)}</strong></p>` : ""}
+      ${!approved && reason ? `<p><strong>Rejection reason:</strong> ${reason}</p>` : ""}
+    </div>
+  </body>
+  </html>
+`;
+

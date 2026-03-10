@@ -16,6 +16,7 @@ import {
 } from "../services/support.service.js";
 import { auditLog } from "../services/audit.service.js";
 import { uploadChatImageFromBuffer } from "../utils/cloudinary.js";
+import { handleSupportTicketCreated } from "../services/marketplaceEvents.service.js";
 
 const createSupportChat = asyncHandler(async (req, res) => {
   const userId = req.user?._id || null;
@@ -46,6 +47,14 @@ const createSupportChat = asyncHandler(async (req, res) => {
     ? await SupportMessage.findById(result.message._id)
         .populate("senderId", "name email profileImage")
     : null;
+
+  if (result.isNew) {
+    handleSupportTicketCreated({
+      chat: result.chat,
+      user: req.user ? { _id: req.user._id, name: req.user.name, email: req.user.email } : null,
+      initialMessage,
+    }).catch(() => null);
+  }
 
   return res.status(result.isNew ? 201 : 200).json(
     new ApiResponse(result.isNew ? 201 : 200, {

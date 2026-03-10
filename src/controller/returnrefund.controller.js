@@ -10,6 +10,7 @@ import { LicenseKey } from "../models/licensekey.model.js";
 import { Product } from "../models/product.model.js";
 import { Payout } from "../models/payout.model.js";
 import { Seller } from "../models/seller.model.js";
+import { User } from "../models/user.model.js";
 import { auditLog } from "../services/audit.service.js";
 import { REFUND_STATUS, REFUND_WINDOW_DAYS, PAYOUT_HOLD_DAYS, REFUND_METHOD } from "../constants.js";
 import { creditWallet } from "../services/wallet.service.js";
@@ -17,7 +18,8 @@ import { getSellerBalance, adjustPayoutForRefund, blockPayoutsForOrder } from ".
 import { processRefund as processPayPalRefund } from "../services/payment.service.js";
 import { Transaction } from "../models/transaction.model.js";
 import { invalidateReviewsForOrder, calculateAverageRating } from "../services/review.service.js";
-import { notifySellerOfRefund, notifySellerOfRefundRequested } from "../services/refundNotification.service.js";
+import { notifySellerOfRefundRequested } from "../services/refundNotification.service.js";
+import { handleRefundDecision, handleRefundRequestCreated } from "../services/marketplaceEvents.service.js";
 import { uploadChatImageFromBuffer } from "../utils/cloudinary.js";
 
 /** Appends entry to refund history (append-only). */
@@ -221,6 +223,26 @@ const createReturnRefund = asyncHandler(async (req, res) => {
       logger.error("[createReturnRefund] Refund-requested notification failed", { refundId: returnRefund._id, err: err.message })
     );
   }
+  const [productForNotify, sellerForNotify, customerForNotify] = await Promise.all([
+    Product.findById(actualProductId).select("_id name").lean(),
+    Seller.findById(actualSellerId).select("_id shopName userId").lean(),
+    User.findById(userId).select("_id name email").lean(),
+  ]);
+  handleRefundRequestCreated(
+    {
+      refund: returnRefund,
+      order: order,
+      product: productForNotify,
+      seller: sellerForNotify,
+      customer: customerForNotify,
+    },
+    req.app
+  ).catch((err) =>
+    logger.error("[createReturnRefund] Admin refund-request event failed", {
+      refundId: returnRefund._id,
+      err: err.message,
+    })
+  );
 
   return res.status(201).json(
     new ApiResponse(201, returnRefund, "Refund request created successfully. Admin will review.")
@@ -237,7 +259,7 @@ const getUserRefunds = asyncHandler(async (req, res) => {
   }
 
   const refunds = await ReturnRefund.find(match)
-    .populate("orderId", "totalAmount createdAt orderStatus")
+    .populate("orderId", "totalAmount createdAt orderStatus orderNumber")
     .populate("productId", "name images price productType")
     .populate("sellerId", "shopName")
     .sort({ createdAt: -1 })
@@ -268,7 +290,7 @@ const getRefundById = asyncHandler(async (req, res) => {
   }
 
   const refund = await ReturnRefund.findById(refundId)
-    .populate("orderId", "totalAmount createdAt orderStatus items")
+    .populate("orderId", "totalAmount createdAt orderStatus items orderNumber")
     .populate("productId", "name images price productType")
     .populate("sellerId", "shopName")
     .populate("userId", "name email");
@@ -307,7 +329,7 @@ const getAllRefunds = asyncHandler(async (req, res) => {
 
   const refunds = await ReturnRefund.find(match)
     .populate("userId", "name email")
-    .populate("orderId", "totalAmount createdAt orderStatus")
+    .populate("orderId", "totalAmount createdAt orderStatus orderNumber")
     .populate("productId", "name images price productType")
     .populate("sellerId", "shopName")
     .sort({ createdAt: -1 })
@@ -433,6 +455,18 @@ const updateRefundStatus = asyncHandler(async (req, res) => {
     pushRefundHistory(refund, "admin", "ADMIN_REJECTED", prev, "ADMIN_REJECTED", rejectionReason);
     await refund.save();
     await refund.populate("userId", "name email").populate("orderId", "totalAmount createdAt orderStatus").populate("productId", "name images price productType").populate("sellerId", "shopName");
+    const sellerForNotify = await Seller.findById(refund.sellerId?._id || refund.sellerId).select("_id shopName userId").lean();
+    const sellerUserForNotify = sellerForNotify?.userId
+      ? await User.findById(sellerForNotify.userId).select("_id name email").lean()
+      : null;
+    handleRefundDecision({
+      refund,
+      customer: refund.userId,
+      seller: sellerForNotify,
+      sellerUser: sellerUserForNotify,
+      approved: false,
+      rejectionReason,
+    }).catch(() => null);
     await auditLog(req.user._id, "REFUND_ADMIN_REJECTED", `Refund ${refundId} rejected by admin`, { refundId, rejectionReason });
     return res.status(200).json(new ApiResponse(200, refund, "Refund request rejected (final decision)."));
   }
@@ -485,6 +519,18 @@ const updateRefundStatus = asyncHandler(async (req, res) => {
     await refund.populate("orderId", "totalAmount createdAt orderStatus");
     await refund.populate("productId", "name images price productType");
     await refund.populate("sellerId", "shopName");
+    const sellerForNotify = await Seller.findById(refund.sellerId?._id || refund.sellerId).select("_id shopName userId").lean();
+    const sellerUserForNotify = sellerForNotify?.userId
+      ? await User.findById(sellerForNotify.userId).select("_id name email").lean()
+      : null;
+    handleRefundDecision({
+      refund,
+      customer: refund.userId,
+      seller: sellerForNotify,
+      sellerUser: sellerUserForNotify,
+      approved: false,
+      rejectionReason,
+    }).catch(() => null);
 
     await auditLog(req.user._id, "REFUND_REJECTED", `Refund ${refundId} rejected`, {
       refundId,
@@ -765,13 +811,20 @@ const processRefundExecution = async (refund, actorUserId, actorRole) => {
       timestamp: new Date(),
       notes: payoutHeld ? "Deducted from seller pending (payout still held)" : "Deducted from seller available balance",
     });
-    notifySellerOfRefund({
-      order,
+    const [customerForNotify, sellerForNotify] = await Promise.all([
+      User.findById(userId).select("_id name email").lean(),
+      Seller.findById(sellerId).select("_id shopName userId").lean(),
+    ]);
+    const sellerUserForNotify = sellerForNotify?.userId
+      ? await User.findById(sellerForNotify.userId).select("_id name email").lean()
+      : null;
+    handleRefundDecision({
       refund,
-      refundType: allItemsRefunded ? "full" : "partial",
-      refundAmount,
-      payoutStatus,
-    }).catch((err) => logger.error("Refund notification failed", { refundId: refund._id, err: err.message }));
+      customer: customerForNotify,
+      seller: sellerForNotify,
+      sellerUser: sellerUserForNotify,
+      approved: true,
+    }).catch((err) => logger.error("Refund decision event failed", { refundId: refund._id, err: err.message }));
 
     return { walletBalance: finalWalletBalance };
   } catch (err) {
@@ -923,13 +976,18 @@ const processManualRefundCompletion = async (refund, adminUserId, manualRefundRe
       timestamp: new Date(),
       notes: "Refund sent manually via PayPal; seller balance adjusted; keys invalidated.",
     });
-    notifySellerOfRefund({
-      order,
+    const customerForNotify = await User.findById(refund.userId).select("_id name email").lean();
+    const sellerForNotify = await Seller.findById(sellerId).select("_id shopName userId").lean();
+    const sellerUserForNotify = sellerForNotify?.userId
+      ? await User.findById(sellerForNotify.userId).select("_id name email").lean()
+      : null;
+    handleRefundDecision({
       refund,
-      refundType: allItemsRefunded ? "full" : "partial",
-      refundAmount,
-      payoutStatus: payoutHeld ? "HELD" : "RELEASED",
-    }).catch((err) => logger.error("Refund notification failed (manual)", { refundId: refund._id, err: err.message }));
+      customer: customerForNotify,
+      seller: sellerForNotify,
+      sellerUser: sellerUserForNotify,
+      approved: true,
+    }).catch((err) => logger.error("Refund decision event failed (manual)", { refundId: refund._id, err: err.message }));
 
     return {};
   } catch (err) {
@@ -1056,7 +1114,7 @@ const getCompletedOrdersForRefund = asyncHandler(async (req, res) => {
     paymentStatus: "paid",
     orderStatus: { $in: ["completed", "PARTIALLY_REFUNDED", "partially_completed"] },
   })
-    .select("_id createdAt totalAmount items orderCompletedAt updatedAt")
+    .select("_id createdAt totalAmount items orderCompletedAt updatedAt orderNumber")
     .populate("items.productId", "name images productType")
     .sort({ createdAt: -1 })
     .limit(100);
@@ -1069,6 +1127,7 @@ const getCompletedOrdersForRefund = asyncHandler(async (req, res) => {
   const formattedOrders = eligibleOrders.map(order => ({
     _id: order._id.toString(),
     orderId: order._id.toString(),
+    orderNumber: order.orderNumber || null,
     orderDate: order.createdAt,
     orderTotalAmount: order.totalAmount,
     items: order.items
@@ -1273,11 +1332,50 @@ const addRefundMessage = asyncHandler(async (req, res) => {
   await refund.save();
 
   const added = refund.refundMessages[refund.refundMessages.length - 1];
+
   await auditLog(userId, "REFUND_MESSAGE_ADDED", `Message added to refund ${refundId}`, {
     actor: senderRole,
     refundId,
     timestamp: new Date(),
   });
+
+  // Emit real-time refund chat update via Socket.IO (if available)
+  const io = req.app.get("io");
+  if (io) {
+    try {
+      const payload = {
+        refundId: refund._id,
+        message: {
+          _id: added._id,
+          senderId: added.senderId,
+          senderRole: added.senderRole,
+          message: added.message,
+          attachments: added.attachments || [],
+          createdAt: added.createdAt,
+        },
+      };
+
+      // Notify customer
+      if (refund.userId) {
+        io.to(`user:${refund.userId.toString()}`).emit("refund_message", payload);
+      }
+
+      // Notify seller (mapped to seller's user account)
+      const sellerDoc = await Seller.findById(refund.sellerId)
+        .select("userId")
+        .lean()
+        .catch(() => null);
+      if (sellerDoc?.userId) {
+        io.to(`user:${sellerDoc.userId.toString()}`).emit("refund_message", payload);
+      }
+    } catch (socketErr) {
+      logger.warn("[addRefundMessage] Failed to emit refund_message over socket", {
+        refundId,
+        error: socketErr?.message,
+      });
+    }
+  }
+
   return res.status(201).json(new ApiResponse(201, { message: added }, "Message added"));
 });
 

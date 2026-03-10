@@ -1511,6 +1511,7 @@ const getSellerOrders = asyncHandler(async (req, res) => {
     {
       $project: {
         _id: 1,
+        orderNumber: 1,
         items: 1,
         totalAmount: 1,
         orderStatus: 1,

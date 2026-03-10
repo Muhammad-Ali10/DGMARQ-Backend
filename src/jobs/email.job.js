@@ -1,7 +1,21 @@
 import { Queue, Worker } from 'bullmq';
 import mongoose from 'mongoose';
 import { connection } from './payout.job.js';
-import { sendLicenseKeyEmail, sendLicenseKeyEmailToGuest, sendOrderConfirmation, sendPayoutNotification, sendSellerNewOrderEmail } from '../services/email.service.js';
+import {
+  sendLicenseKeyEmail,
+  sendLicenseKeyEmailToGuest,
+  sendOrderConfirmation,
+  sendPayoutNotification,
+  sendRefundDecisionCustomerEmail,
+  sendRefundDecisionSellerEmail,
+  sendRefundRequestToAdminEmail,
+  sendSellerApprovedEmail,
+  sendSellerNewOrderEmail,
+  sendSellerRejectedEmail,
+  sendSellerSubmissionConfirmationEmail,
+  sendSellerSubmissionToAdminEmail,
+  sendSupportTicketCreatedToAdminEmail,
+} from '../services/email.service.js';
 import { Order } from '../models/order.model.js';
 import { User } from '../models/user.model.js';
 import { Payout } from '../models/payout.model.js';
@@ -48,7 +62,7 @@ if (isRedisAvailable) {
   logger.warn('Redis not configured - emails will be sent directly (synchronously)');
 }
 
-/** Dispatches email by type: license_key, license_key_guest, order_confirmation, payout_notification, seller_new_order. */
+/** Dispatches email by type. */
 const processEmailJob = async (type, data) => {
   switch (type) {
     case 'license_key':
@@ -170,6 +184,38 @@ const processEmailJob = async (type, data) => {
         buyerName: sellerOrder.userId?.name || 'Guest Buyer',
         sellerItems,
       });
+      break;
+
+    case 'seller_submission_admin':
+      await sendSellerSubmissionToAdminEmail(data);
+      break;
+
+    case 'seller_submission_confirmation':
+      await sendSellerSubmissionConfirmationEmail(data);
+      break;
+
+    case 'seller_profile_approved':
+      await sendSellerApprovedEmail(data);
+      break;
+
+    case 'seller_profile_rejected':
+      await sendSellerRejectedEmail(data);
+      break;
+
+    case 'support_ticket_admin':
+      await sendSupportTicketCreatedToAdminEmail(data);
+      break;
+
+    case 'refund_request_admin':
+      await sendRefundRequestToAdminEmail(data);
+      break;
+
+    case 'refund_decision_customer':
+      await sendRefundDecisionCustomerEmail(data);
+      break;
+
+    case 'refund_decision_seller':
+      await sendRefundDecisionSellerEmail(data);
       break;
       
     default:

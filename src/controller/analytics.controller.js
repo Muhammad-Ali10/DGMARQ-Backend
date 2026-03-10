@@ -760,15 +760,17 @@ const exportReportCSV = asyncHandler(async (req, res) => {
   let csv = "";
 
   switch (reportType) {
-    case "orders":
+    case "orders": {
       const orders = await Order.find({ ...match, paymentStatus: "paid" }).lean();
       csv = [
         ["Order ID", "User ID", "Total Amount", "Status", "Date"].join(","),
-        ...orders.map((o) =>
-          [o._id, o.userId, o.totalAmount, o.orderStatus, o.createdAt.toISOString()].join(",")
-        ),
+        ...orders.map((o) => {
+          const id = o.orderNumber || o._id;
+          return [id, o.userId, o.totalAmount, o.orderStatus, o.createdAt.toISOString()].join(",");
+        }),
       ].join("\n");
       break;
+    }
     case "products":
       const products = await Product.find(match).lean();
       csv = [

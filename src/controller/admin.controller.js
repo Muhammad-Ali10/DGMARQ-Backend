@@ -20,6 +20,7 @@ import { deleteProductWithRelatedCleanup } from "../services/product.service.js"
 import { SeoSettings } from "../models/seoSettings.model.js";
 import { validateMetaTitle, validateMetaDescription } from "../utils/sanitize.js";
 import { getHandlingFeeConfig, validateHandlingFeeConfig } from "../services/handlingFee.service.js";
+import { handleSellerProfileDecision } from "../services/marketplaceEvents.service.js";
 
 const approveSeller = asyncHandler(async (req, res) => {
   const { sellerId } = req.params;
@@ -45,6 +46,15 @@ const approveSeller = asyncHandler(async (req, res) => {
     $addToSet: { roles: "seller" },
     isActive: true,
   });
+
+  const sellerUser = await User.findById(seller.userId).select("_id name email").lean();
+  if (sellerUser) {
+    handleSellerProfileDecision({
+      seller,
+      sellerUser,
+      approved: true,
+    }).catch(() => null);
+  }
 
   await auditLog(adminId, 'SELLER_APPROVED', `Approved seller: ${seller.shopName}`, {
     sellerId: seller._id,
@@ -80,6 +90,16 @@ const rejectSeller = asyncHandler(async (req, res) => {
     isActive: false,
     $pull: { roles: 'seller' },
   });
+
+  const sellerUser = await User.findById(seller.userId).select("_id name email").lean();
+  if (sellerUser) {
+    handleSellerProfileDecision({
+      seller,
+      sellerUser,
+      approved: false,
+      reason: reason || null,
+    }).catch(() => null);
+  }
 
   await auditLog(adminId, 'SELLER_REJECTED', `Rejected seller: ${seller.shopName}`, {
     sellerId: seller._id,

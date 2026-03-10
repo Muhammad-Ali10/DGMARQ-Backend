@@ -10,6 +10,7 @@ import { Order } from "../models/order.model.js";
 import { Payout } from "../models/payout.model.js";
 import { Review } from "../models/review.model.js";
 import { getSellerBalance, getSellerPayouts } from "../services/payout.service.js";
+import { handleSellerProfileSubmitted } from "../services/marketplaceEvents.service.js";
 import mongoose from "mongoose";
 
 
@@ -53,6 +54,8 @@ const applySeller = asyncHandler(async (req, res) => {
     kycDocs: kycDocsImages.map((file) => file.url),
     status: "pending"
   });
+
+  handleSellerProfileSubmitted({ seller, sellerUser: user }).catch(() => null);
 
   return res
     .status(201)

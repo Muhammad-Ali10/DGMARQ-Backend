@@ -128,16 +128,62 @@ export const bulkUploadKeys = async (productId, keys, sellerId) => {
           continue;
         }
       } else if (typeof keyData === 'object') {
-        const { key, email, password, username, emailPassword, ...rest } = keyData;
-        
+        const {
+          key,
+          email,
+          password,
+          username,
+          emailPassword,
+          usernameId,
+          usernamePassword,
+          ...rest
+        } = keyData;
+
         if (key) {
-          keyString = key.trim();
-        } else if (email && password) {
-          keyString = JSON.stringify({ email, password, username, emailPassword });
-          keyType = 'account';
+          keyString = String(key).trim();
         } else {
-          keyString = JSON.stringify(keyData);
-          keyType = 'account';
+          const normalizedEmail = typeof email === 'string' && email.trim() ? email.trim() : null;
+          const normalizedUsernameId =
+            (typeof usernameId === 'string' && usernameId.trim()
+              ? usernameId.trim()
+              : null) ||
+            (typeof username === 'string' && username.trim()
+              ? username.trim()
+              : null);
+
+          const finalEmailPassword =
+            typeof emailPassword === 'string' && emailPassword.trim()
+              ? emailPassword.trim()
+              : normalizedEmail && !normalizedUsernameId && typeof password === 'string' && password.trim()
+              ? password.trim()
+              : null;
+
+          const finalUsernamePassword =
+            typeof usernamePassword === 'string' && usernamePassword.trim()
+              ? usernamePassword.trim()
+              : normalizedUsernameId && typeof password === 'string' && password.trim()
+              ? password.trim()
+              : null;
+
+          if (normalizedEmail || normalizedUsernameId || finalEmailPassword || finalUsernamePassword) {
+            const accountPayload = {
+              email: normalizedEmail || undefined,
+              emailPassword: finalEmailPassword || undefined,
+              usernameId: normalizedUsernameId || undefined,
+              usernamePassword: finalUsernamePassword || undefined,
+            };
+            keyString = JSON.stringify(accountPayload);
+            keyType = 'account';
+          } else if (normalizedEmail && password) {
+            keyString = JSON.stringify({
+              email: normalizedEmail,
+              emailPassword: String(password).trim() || undefined,
+            });
+            keyType = 'account';
+          } else {
+            keyString = JSON.stringify(keyData);
+            keyType = 'account';
+          }
         }
 
         if (Object.keys(rest).length > 0) {

@@ -43,7 +43,7 @@ const getPayoutDetails = asyncHandler(async (req, res) => {
     _id: payoutId,
     sellerId: seller._id,
   })
-    .populate("orderId", "totalAmount createdAt")
+    .populate("orderId", "totalAmount createdAt orderNumber")
     .populate("sellerId", "shopName");
 
   if (!payout) {
@@ -138,7 +138,7 @@ const getPayoutReports = asyncHandler(async (req, res) => {
   }
 
   const payouts = await Payout.find(match)
-    .populate("orderId", "totalAmount createdAt")
+    .populate("orderId", "totalAmount createdAt orderNumber")
     .sort({ createdAt: -1 });
 
   const report = {
@@ -168,16 +168,17 @@ const getPayoutReports = asyncHandler(async (req, res) => {
   if (format === "csv") {
     const csv = [
       ["Payout ID", "Order ID", "Amount", "Commission", "Status", "Date"].join(","),
-      ...payouts.map((p) =>
-        [
+      ...payouts.map((p) => {
+        const orderId = p.orderId?.orderNumber || p.orderId?._id || "";
+        return [
           p._id,
-          p.orderId?._id || "",
+          orderId,
           p.netAmount,
           p.commissionAmount,
           p.status,
           p.createdAt.toISOString(),
-        ].join(",")
-      ),
+        ].join(",");
+      }),
     ].join("\n");
 
     return res

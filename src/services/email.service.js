@@ -4,9 +4,17 @@ import {
   licenseKeyEmailTemplate,
   orderConfirmationEmailTemplate,
   payoutNotificationEmailTemplate,
+  refundDecisionCustomerEmailTemplate,
+  refundDecisionSellerEmailTemplate,
+  refundRequestAdminEmailTemplate,
   refundIssuedSellerEmailTemplate,
   refundRequestedSellerEmailTemplate,
+  sellerProfileApprovedEmailTemplate,
+  sellerProfileRejectedEmailTemplate,
+  sellerProfileSubmissionAdminEmailTemplate,
+  sellerProfileSubmissionSellerEmailTemplate,
   sellerNewOrderEmailTemplate,
+  supportTicketCreatedAdminEmailTemplate,
 } from '../utils/emailTemplates.js';
 import { EmailLog } from '../models/emailLog.model.js';
 import { decryptKey } from '../utils/encryption.js';
@@ -33,6 +41,24 @@ const createTransporter = () => {
       user: process.env.ETHEREAL_USER || 'test@ethereal.email',
       pass: process.env.ETHEREAL_PASS || 'test',
     },
+  });
+};
+
+const sendAndLogEmail = async ({ to, subject, html, template }) => {
+  const transporter = createTransporter();
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM || 'noreply@dgmarq.com',
+    to,
+    subject,
+    html,
+  });
+
+  await EmailLog.create({
+    recipient: to,
+    subject,
+    template,
+    status: 'sent',
+    sentAt: new Date(),
   });
 };
 
@@ -649,6 +675,206 @@ export const sendSellerNewOrderEmail = async ({
       logger.error('Failed to create EmailLog for seller new-order email failure', logError);
     });
 
+    throw error;
+  }
+};
+
+export const sendSellerSubmissionToAdminEmail = async ({
+  adminEmail,
+  sellerFullName,
+  sellerEmail,
+  storeName,
+  submittedDocuments = [],
+  submittedAt,
+}) => {
+  try {
+    const html = sellerProfileSubmissionAdminEmailTemplate({
+      sellerFullName,
+      sellerEmail,
+      storeName,
+      submittedDocuments,
+      submittedAt,
+    });
+
+    await sendAndLogEmail({
+      to: adminEmail,
+      subject: `New Seller Profile Submission - ${storeName}`,
+      html,
+      template: 'sellerProfileSubmissionAdmin',
+    });
+    return { success: true };
+  } catch (error) {
+    logger.error('Failed to send seller submission email to admin', error);
+    throw error;
+  }
+};
+
+export const sendSellerSubmissionConfirmationEmail = async ({ sellerEmail, sellerName, storeName }) => {
+  try {
+    const html = sellerProfileSubmissionSellerEmailTemplate({
+      sellerName,
+      storeName,
+    });
+
+    await sendAndLogEmail({
+      to: sellerEmail,
+      subject: 'Seller profile submitted successfully',
+      html,
+      template: 'sellerProfileSubmissionConfirmation',
+    });
+    return { success: true };
+  } catch (error) {
+    logger.error('Failed to send seller submission confirmation email', error);
+    throw error;
+  }
+};
+
+export const sendSellerApprovedEmail = async ({ sellerEmail, sellerName, storeName }) => {
+  try {
+    const html = sellerProfileApprovedEmailTemplate({
+      sellerName,
+      storeName,
+      nextStepsUrl: `${process.env.FRONTEND_URL || ''}/seller/dashboard`,
+    });
+
+    await sendAndLogEmail({
+      to: sellerEmail,
+      subject: 'Your Seller Profile Has Been Approved',
+      html,
+      template: 'sellerProfileApproved',
+    });
+    return { success: true };
+  } catch (error) {
+    logger.error('Failed to send seller approved email', error);
+    throw error;
+  }
+};
+
+export const sendSellerRejectedEmail = async ({ sellerEmail, sellerName, storeName, reason }) => {
+  try {
+    const html = sellerProfileRejectedEmailTemplate({
+      sellerName,
+      storeName,
+      reason,
+    });
+
+    await sendAndLogEmail({
+      to: sellerEmail,
+      subject: 'Your Seller Profile Has Been Rejected',
+      html,
+      template: 'sellerProfileRejected',
+    });
+    return { success: true };
+  } catch (error) {
+    logger.error('Failed to send seller rejected email', error);
+    throw error;
+  }
+};
+
+export const sendSupportTicketCreatedToAdminEmail = async ({
+  adminEmail,
+  ticketId,
+  userName,
+  userEmail,
+  subject,
+  message,
+  createdAt,
+}) => {
+  try {
+    const html = supportTicketCreatedAdminEmailTemplate({
+      ticketId,
+      userName,
+      userEmail,
+      subject,
+      message,
+      createdAt,
+    });
+
+    await sendAndLogEmail({
+      to: adminEmail,
+      subject: `New Support Ticket #${ticketId}`,
+      html,
+      template: 'supportTicketAdmin',
+    });
+    return { success: true };
+  } catch (error) {
+    logger.error('Failed to send support ticket email to admin', error);
+    throw error;
+  }
+};
+
+export const sendRefundRequestToAdminEmail = async ({ adminEmail, details }) => {
+  try {
+    const html = refundRequestAdminEmailTemplate(details);
+    await sendAndLogEmail({
+      to: adminEmail,
+      subject: `New Refund Request #${details.refundRequestId}`,
+      html,
+      template: 'refundRequestAdmin',
+    });
+    return { success: true };
+  } catch (error) {
+    logger.error('Failed to send refund request email to admin', error);
+    throw error;
+  }
+};
+
+export const sendRefundDecisionCustomerEmail = async ({
+  customerEmail,
+  customerName,
+  refundId,
+  approved,
+  amount,
+  reason,
+}) => {
+  try {
+    const html = refundDecisionCustomerEmailTemplate({
+      approved,
+      customerName,
+      refundId,
+      amount,
+      reason,
+    });
+
+    await sendAndLogEmail({
+      to: customerEmail,
+      subject: approved ? 'Your Refund Request Was Approved' : 'Your Refund Request Was Rejected',
+      html,
+      template: 'refundDecisionCustomer',
+    });
+    return { success: true };
+  } catch (error) {
+    logger.error('Failed to send refund decision email to customer', error);
+    throw error;
+  }
+};
+
+export const sendRefundDecisionSellerEmail = async ({
+  sellerEmail,
+  sellerName,
+  refundId,
+  approved,
+  amount,
+  reason,
+}) => {
+  try {
+    const html = refundDecisionSellerEmailTemplate({
+      approved,
+      sellerName,
+      refundId,
+      amount,
+      reason,
+    });
+
+    await sendAndLogEmail({
+      to: sellerEmail,
+      subject: approved ? 'A Refund Request Was Approved' : 'A Refund Request Was Rejected',
+      html,
+      template: 'refundDecisionSeller',
+    });
+    return { success: true };
+  } catch (error) {
+    logger.error('Failed to send refund decision email to seller', error);
     throw error;
   }
 };
