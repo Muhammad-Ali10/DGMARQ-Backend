@@ -10,6 +10,7 @@ import mongoose from "mongoose";
 import crypto from "crypto";
 import { sendPasswordResetEmail, sendEmailVerificationOTP } from "../services/email.service.js";
 import nodemailer from "nodemailer";
+import { invalidateUserCache } from "../middlerwares/authmiddlerware.js";
 
 
 
@@ -25,7 +26,7 @@ const generateRefreshTokenAndAccessToken = async (userid) => {
 
     user.refreshToken = bcryptRefreshToken
 
-    user.save({
+    await user.save({
         validateBeforeSave: true
     })
 

@@ -9,12 +9,9 @@ import {
   deleteFlashDeal,
   getAllFlashDeals,
 } from "../controller/flashdeal.controller.js";
-import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
 
 const router = express.Router();
-
-router.use(apiRateLimiter);
 
 router.get("/", getFlashDeals);
 

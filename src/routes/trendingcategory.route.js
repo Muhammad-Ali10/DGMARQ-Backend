@@ -6,12 +6,9 @@ import {
   updateTrendingCategoriesHandler,
   getAllTrendingCategories,
 } from "../controller/trendingcategory.controller.js";
-import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
 
 const router = express.Router();
-
-router.use(apiRateLimiter);
 
 router.get("/", getTrendingCategoriesHandler);
 router.get("/:id", getTrendingCategoryById);

@@ -32,6 +32,7 @@ const createWalletOrder = async (checkoutId, userId, req) => {
   let retryCount = 0;
   const maxRetries = 2;
 
+  try {
   while (retryCount <= maxRetries) {
     try {
       const existingOrder = await Order.findOne({ 
@@ -41,7 +42,6 @@ const createWalletOrder = async (checkoutId, userId, req) => {
       
       if (existingOrder) {
         await session.abortTransaction();
-        session.endSession();
         logger.warn('[WALLET ORDER] Order already exists (idempotent request)', {
           checkoutId,
           existingOrderId: existingOrder._id,
@@ -66,14 +66,12 @@ const createWalletOrder = async (checkoutId, userId, req) => {
 
       if (!checkout) {
         await session.abortTransaction();
-        session.endSession();
         throw new ApiError(404, 'Checkout session not found or already processed');
       }
 
       if (checkout.paymentMethod !== 'Wallet' || checkout.cardAmount > 0) {
         await Checkout.findByIdAndUpdate(checkoutId, { status: 'pending' }, { session });
         await session.abortTransaction();
-        session.endSession();
         throw new ApiError(400, 'This checkout is not configured for wallet-only payment');
       }
 
@@ -104,7 +102,6 @@ const createWalletOrder = async (checkoutId, userId, req) => {
       if (walletBalance < revenue.totalPaid) {
         await Checkout.findByIdAndUpdate(checkoutId, { status: 'pending' }, { session });
         await session.abortTransaction();
-        session.endSession();
         throw new ApiError(400, `Insufficient wallet balance. Available: $${walletBalance.toFixed(2)}, Required: $${revenue.totalPaid.toFixed(2)}`);
       }
 
@@ -374,7 +371,6 @@ const createWalletOrder = async (checkoutId, userId, req) => {
       );
 
       await session.commitTransaction();
-      session.endSession();
 
       try {
         const productIds = [...new Set(orderItems.map(item => item.productId.toString()))];
@@ -464,8 +460,6 @@ const createWalletOrder = async (checkoutId, userId, req) => {
         logger.error('[WALLET ORDER] Failed to create rollback session:', rollbackSessionError);
       }
       
-      session.endSession();
-
       logger.error('[WALLET ORDER] Order creation failed:', {
         checkoutId,
         userId: userId.toString(),
@@ -475,6 +469,9 @@ const createWalletOrder = async (checkoutId, userId, req) => {
       });
       throw error;
     }
+  }
+  } finally {
+    session.endSession();
   }
 };
 

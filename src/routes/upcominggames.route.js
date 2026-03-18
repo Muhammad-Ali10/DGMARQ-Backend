@@ -8,12 +8,9 @@ import {
   reorderProducts,
   updateUpcomingGames,
 } from "../controller/upcominggames.controller.js";
-import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
 
 const router = express.Router();
-
-router.use(apiRateLimiter);
 
 router.get("/", getUpcomingGames);
 

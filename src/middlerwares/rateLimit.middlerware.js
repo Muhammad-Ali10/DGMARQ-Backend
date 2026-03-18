@@ -64,3 +64,12 @@ export const otpEmailLimiter = rateLimit({
   skipSuccessfulRequests: false,
 });
 
+/** Limits wallet debit/withdraw operations to 10 per hour per IP. */
+export const walletLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: 'Too many wallet operations. Please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+

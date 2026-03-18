@@ -2,13 +2,16 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import session from "express-session";
+import MongoStore from "connect-mongo";
 import helmet from "helmet";
 import compression from "compression";
+import morgan from "morgan";
 import passport from "./config/passport.config.js";
 import { errorHandler } from "./middlerwares/error.middlerware.js";
 import { enforceHTTPS, securityHeaders } from "./middlerwares/https.middlerware.js";
 import { apiLimiter } from "./middlerwares/rateLimit.middlerware.js";
 import { coreStateGate } from "./middlerwares/coreStateGate.middlerware.js";
+import { sanitizeInput } from "./middlerwares/sanitize.middlerware.js";
 
 const app = express();
 
@@ -30,6 +33,7 @@ app.use(helmet({
 }));
 app.use(securityHeaders);
 app.use(compression());
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use(enforceHTTPS);
 const corsOrigin = process.env.FRONTEND_URL || 'http://localhost:5173';
 const corsOrigins = [corsOrigin];
@@ -97,11 +101,16 @@ app.use(
 );
 
 app.use(cookieParser());
+app.use(sanitizeInput); // NoSQL injection protection — strip $ operators from input
 app.use(express.static("public"));
 
-let sessionStore = undefined;
-if (process.env.NODE_ENV === 'production' && !sessionStore) {
-}
+const sessionStore = MongoStore.create({
+  mongoUrl: process.env.MONGO_URI || process.env.MONGODB_URI,
+  dbName: process.env.DB_Name,
+  ttl: 24 * 60 * 60, // 1 day
+  autoRemove: 'native',
+  touchAfter: 3600, // Only update session once per hour unless data changes
+});
 
 app.use(
   session({
@@ -160,6 +169,7 @@ import upcomingReleaseRouter from "./routes/upcomingrelease.route.js";
 import upcomingGamesRouter from "./routes/upcominggames.route.js";
 import seoRouter from "./routes/seo.route.js";
 import walletRouter from "./routes/wallet.route.js";
+import homepageRouter from "./routes/homepage.route.js";
 
 app.use("/api/v1/user", userRouter);
 app.use("/api/v1/seller", sellerRouter);
@@ -200,6 +210,7 @@ app.use("/api/v1/upcoming-release", upcomingReleaseRouter);
 app.use("/api/v1/upcoming-games", upcomingGamesRouter);
 app.use("/api/v1/seo", seoRouter);
 app.use("/api/v1/wallet", walletRouter);
+app.use("/api/v1/homepage", homepageRouter);
 
 app.use(errorHandler);
 

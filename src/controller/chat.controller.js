@@ -7,7 +7,7 @@ import { Message } from "../models/message.model.js";
 import { Order } from "../models/order.model.js";
 import { Seller } from "../models/seller.model.js";
 import { User } from "../models/user.model.js";
-import { createNotification } from "../services/notification.service.js";
+
 import { uploadChatImageFromBuffer } from "../utils/cloudinary.js";
 
 const createConversation = asyncHandler(async (req, res) => {
@@ -289,39 +289,17 @@ const sendMessage = asyncHandler(async (req, res) => {
     .populate("senderId", "name email profileImage")
     .populate("receiverId", "name email profileImage");
 
-  const senderName = populatedMessage.senderId?.name || populatedMessage.senderId?.username || 'Someone';
-  const messagePreview = messageText.length > 50 ? messageText.substring(0, 50) + '...' : messageText;
-  
-  createNotification(
-    receiverId,
-    'chat',
-    `New message from ${senderName}`,
-    messagePreview,
-    {
-      messageId: message._id.toString(),
-      conversationId: conversationId.toString(),
-      senderId: senderId.toString(),
-      senderName: senderName,
-      senderAvatar: populatedMessage.senderId?.profileImage || null,
-    },
-    `/user/chat?conversation=${conversationId}`,
-    'high'
-  ).catch((err) => {
-  });
-
   if (req.app.get('io')) {
     const io = req.app.get('io');
-    
-    io.to(`conversation:${conversationId}`).emit('new_message', populatedMessage);
-    
-    io.to(`user:${receiverId}`).emit('message_received', {
-      conversationId,
-      message: populatedMessage,
-    });
+    const convIdStr = conversationId.toString();
+    const receiverIdStr = receiverId.toString();
 
-    io.to(`user:${receiverId}`).emit('notification_new', {
-      type: 'chat',
-      conversationId: conversationId.toString(),
+    // Emit to conversation room (both sender & receiver if in room)
+    io.to(`conversation:${convIdStr}`).emit('new_message', populatedMessage);
+    // Backup delivery to receiver's personal room (different event name to avoid duplicates)
+    io.to(`user:${receiverIdStr}`).emit('message_received', {
+      conversationId: convIdStr,
+      message: populatedMessage,
     });
   }
 
@@ -380,37 +358,15 @@ const sendImageMessage = asyncHandler(async (req, res) => {
     .populate("senderId", "name email profileImage")
     .populate("receiverId", "name email profileImage");
 
-  const senderName = populatedMessage.senderId?.name || populatedMessage.senderId?.username || 'Someone';
-  const messagePreview = (messageText.trim() || 'Image').length > 50 
-    ? (messageText.trim() || 'Image').substring(0, 50) + '...' 
-    : (messageText.trim() || 'Image');
-
-  createNotification(
-    receiverId,
-    'chat',
-    `New message from ${senderName}`,
-    messagePreview,
-    {
-      messageId: message._id.toString(),
-      conversationId: conversationId.toString(),
-      senderId: senderId.toString(),
-      senderName: senderName,
-      senderAvatar: populatedMessage.senderId?.profileImage || null,
-    },
-    `/user/chat?conversation=${conversationId}`,
-    'high'
-  ).catch(() => {});
-
   if (req.app.get('io')) {
     const io = req.app.get('io');
-    io.to(`conversation:${conversationId}`).emit('new_message', populatedMessage);
-    io.to(`user:${receiverId}`).emit('message_received', {
-      conversationId,
+    const convIdStr = conversationId.toString();
+    const receiverIdStr = receiverId.toString();
+
+    io.to(`conversation:${convIdStr}`).emit('new_message', populatedMessage);
+    io.to(`user:${receiverIdStr}`).emit('message_received', {
+      conversationId: convIdStr,
       message: populatedMessage,
-    });
-    io.to(`user:${receiverId}`).emit('notification_new', {
-      type: 'chat',
-      conversationId: conversationId.toString(),
     });
   }
 

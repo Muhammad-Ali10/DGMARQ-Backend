@@ -11,13 +11,10 @@ import {
 } from "../controller/subscription.controller.js";
 import { verifyJWT } from "../middlerwares/authmiddlerware.js";
 import { authorizeRoles } from "../middlerwares/authmiddlerware.js";
-import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 import { validateSubscriptionPlanId } from "../middlerwares/subscriptionValidation.middlerware.js";
 
 
 const router = express.Router();
-
-router.use(apiRateLimiter);
 
 router.get("/plans", getSubscriptionPlans);
 

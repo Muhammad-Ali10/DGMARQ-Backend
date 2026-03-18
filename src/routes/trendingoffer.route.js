@@ -10,12 +10,9 @@ import {
   getAllTrendingOffers,
   updateAllStatuses,
 } from "../controller/trendingoffer.controller.js";
-import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
 
 const router = express.Router();
-
-router.use(apiRateLimiter);
 
 router.get("/", getTrendingOffers);
 router.get("/product/:productId", getOfferByProduct);

@@ -11,13 +11,10 @@ import {
   getSupportStats,
 } from "../controller/support.controller.js";
 import { verifyJWT, authorizeRoles, optionalJWT } from "../middlerwares/authmiddlerware.js";
-import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 import { uploadChatImage } from "../middlerwares/multer.middlerware.js";
 
 
 const router = express.Router();
-
-router.use(apiRateLimiter);
 
 router.post("/", optionalJWT, createSupportChat);
 router.get("/", optionalJWT, getMySupportChats);

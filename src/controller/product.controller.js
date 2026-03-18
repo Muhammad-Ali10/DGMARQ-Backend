@@ -176,9 +176,7 @@ const updateProductImages = asyncHandler(async (req, res) => {
   if (!product) throw new ApiError(404, "Product not found");
 
   if (removeImages.length) {
-    for (const pid of removeImages) {
-      await fileDelete(pid);
-    }
+    await Promise.all(removeImages.map((pid) => fileDelete(pid)));
 
     product.images = product.images.filter(
       (_, idx) => !removeImages.includes(product.publicId[idx])
@@ -234,9 +232,7 @@ const deleteProduct = asyncHandler(async (req, res) => {
   }
 
   if (product.publicId && product.publicId.length > 0) {
-    for (const pid of product.publicId) {
-      await fileDelete(pid);
-    }
+    await Promise.all(product.publicId.map((pid) => fileDelete(pid)));
   }
 
   await deleteProductWithRelatedCleanup(id);

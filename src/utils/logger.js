@@ -1,52 +1,53 @@
-const isDevelopment = process.env.NODE_ENV === 'development';
+import winston from 'winston';
 
-class Logger {
-  info(message, ...args) {
-    if (isDevelopment) {
-      console.log(`ℹ️ [INFO] ${message}`, ...args);
-    }
-  }
+const { combine, timestamp, errors, json, colorize, printf } = winston.format;
 
-  success(message, ...args) {
-    if (isDevelopment) {
-      console.log(`✅ [SUCCESS] ${message}`, ...args);
-    } else if (typeof message === 'string' && (message.includes('MongoDB') || message.includes('Server is running') || message.includes('running at port'))) {
-      // Always log critical startup messages
-      console.log(`✅ [SUCCESS] ${message}`, ...args);
-    }
-  }
+const devFormat = printf(({ level, message, timestamp: ts, stack, ...meta }) => {
+  const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
+  return `${ts} [${level}]: ${stack || message}${metaStr}`;
+});
 
-  warn(message, ...args) {
-    if (isDevelopment) {
-      console.warn(`⚠️ [WARN] ${message}`, ...args);
-    }
-  }
+const logger = winston.createLogger({
+  level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+  format: combine(
+    timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+    errors({ stack: true }),
+  ),
+  defaultMeta: { service: 'dgmarq-api' },
+  transports: [
+    // Console transport — pretty in dev, JSON in prod
+    new winston.transports.Console({
+      format: process.env.NODE_ENV === 'production'
+        ? json()
+        : combine(colorize(), devFormat),
+    }),
+    // File transports — only in production or when LOG_TO_FILE is set
+    ...(process.env.NODE_ENV === 'production' || process.env.LOG_TO_FILE
+      ? [
+          new winston.transports.File({
+            filename: 'logs/error.log',
+            level: 'error',
+            maxsize: 5 * 1024 * 1024, // 5MB
+            maxFiles: 5,
+            format: json(),
+          }),
+          new winston.transports.File({
+            filename: 'logs/combined.log',
+            maxsize: 5 * 1024 * 1024,
+            maxFiles: 5,
+            format: json(),
+          }),
+        ]
+      : []),
+  ],
+});
 
-  error(message, error = null, ...args) {
-    const errorDetails = error instanceof Error 
-      ? {
-          message: error.message,
-          stack: error.stack,
-          ...(error.statusCode && { statusCode: error.statusCode }),
-        }
-      : error;
+// Convenience aliases for backward compatibility
+logger.success = (message, ...args) => logger.info(message, ...args);
+logger.http = (method, url, statusCode = null, ...args) => {
+  const status = statusCode ? `[${statusCode}]` : '';
+  logger.info(`${method} ${url} ${status}`, ...args);
+};
 
-    console.error(`❌ [ERROR] ${message}`, errorDetails || '', ...args);
-  }
-
-  debug(message, ...args) {
-    if (isDevelopment) {
-      console.log(`🔍 [DEBUG] ${message}`, ...args);
-    }
-  }
-
-  http(method, url, statusCode = null, ...args) {
-    if (isDevelopment) {
-      const status = statusCode ? `[${statusCode}]` : '';
-      console.log(`🌐 [HTTP] ${method} ${url} ${status}`, ...args);
-    }
-  }
-}
-
-export const logger = new Logger();
+export { logger };
 export default logger;

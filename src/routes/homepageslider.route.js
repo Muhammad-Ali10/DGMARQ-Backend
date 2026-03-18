@@ -9,12 +9,9 @@ import {
   deleteHomepageSlider,
   getAllHomepageSliders,
 } from "../controller/homepageslider.controller.js";
-import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
 
 const router = express.Router();
-
-router.use(apiRateLimiter);
 
 router.get("/", getHomepageSliders);
 router.get("/:id", getHomepageSliderById);

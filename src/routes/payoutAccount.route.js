@@ -10,12 +10,9 @@ import {
   getSellersPayoutStatus,
 } from "../controller/payoutAccount.controller.js";
 import { verifyJWT, authorizeRoles } from "../middlerwares/authmiddlerware.js";
-import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
 
 const router = express.Router();
-
-router.use(apiRateLimiter);
 
 router.post("/link", verifyJWT, authorizeRoles("seller"), linkPayoutAccount);
 router.get("/my", verifyJWT, authorizeRoles("seller"), getMyPayoutAccount);

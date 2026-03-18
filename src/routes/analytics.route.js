@@ -16,11 +16,8 @@ import {
 } from "../controller/analytics.controller.js";
 import { verifyJWT } from "../middlerwares/authmiddlerware.js";
 import { authorizeRoles } from "../middlerwares/authmiddlerware.js";
-import { apiRateLimiter } from "../middlerwares/rateLimit.middlerware.js";
 
 const router = express.Router();
-
-router.use(apiRateLimiter);
 
 router.get("/product/:productId", getProductAnalytics);
 router.post("/product/:productId/view", incrementProductViews);

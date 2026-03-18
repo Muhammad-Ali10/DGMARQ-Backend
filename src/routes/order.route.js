@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { verifyJWT, authorizeRoles, optionalJWT } from "../middlerwares/authmiddlerware.js";
+import { walletLimiter } from "../middlerwares/rateLimit.middlerware.js";
 import {
   createOrder,
   getOrders,
@@ -13,7 +14,7 @@ import {
 
 const router = Router();
 
-router.route("/create").post(createOrder);
+router.route("/create").post(walletLimiter, createOrder);
 
 router
   .route("/my-orders")

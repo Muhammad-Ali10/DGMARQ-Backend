@@ -13,6 +13,7 @@
   "license": "ISC",
   "dependencies": {
     "@paypal/checkout-server-sdk": "^1.0.3",
+    "@socket.io/redis-adapter": "^8.3.0",
     "bcrypt": "^6.0.0",
     "bullmq": "^5.3.4",
     "cloudinary": "^2.7.0",
@@ -31,13 +32,16 @@
     "mongodb": "^6.20.0",
     "mongoose": "^8.18.1",
     "mongoose-aggregate-paginate-v2": "^1.1.4",
+    "morgan": "^1.10.1",
     "multer": "^2.0.2",
     "nodemailer": "^6.9.8",
     "passport": "^0.7.0",
     "passport-facebook": "^3.0.0",
     "passport-google-oauth20": "^2.0.0",
     "rate-limit-redis": "^4.3.1",
-    "socket.io": "^4.7.2"
+    "socket.io": "^4.7.2",
+    "winston": "^3.19.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
