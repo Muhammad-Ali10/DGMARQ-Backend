@@ -78,7 +78,11 @@ export const licenseKeyEmailTemplate = (order, keys, user, keyToItemMap = null) 
         </div>
         <div class="content">
           <p>Hello ${user.name},</p>
-          <p>Thank you for your purchase! Your order #${order._id} has been completed.</p>
+          <p>Thank you for your purchase! Your order has been completed.</p>
+          <p style="margin: 10px 0; padding: 10px; background: #e8f4fd; border: 1px solid #bee5eb; border-radius: 4px;">
+            <strong>Order ID:</strong> <code style="padding: 2px 6px; background: #fff; border-radius: 3px; font-size: 14px;">${order._id}</code>
+          </p>
+          <p style="font-size: 12px; color: #666;">Save this Order ID — you will need it if you request a refund.</p>
           <p>Here are your order details:</p>
           ${keysListHtml}
           <p style="margin-top: 30px; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 3px;">
@@ -144,7 +148,11 @@ export const orderConfirmationEmailTemplate = (order, user) => {
         </div>
         <div class="content">
           <p>Hello ${user.name},</p>
-          <p>Thank you for your order! Your order #${order._id} has been received.</p>
+          <p>Thank you for your order!</p>
+          <p style="margin: 10px 0; padding: 10px; background: #e8f4fd; border: 1px solid #bee5eb; border-radius: 4px;">
+            <strong>Order ID:</strong> <code style="padding: 2px 6px; background: #fff; border-radius: 3px; font-size: 14px;">${order._id}</code>
+          </p>
+          <p style="font-size: 12px; color: #666;">Save this Order ID — you will need it if you request a refund.</p>
           <table>
             <thead>
               <tr style="background: #f5f5f5;">
@@ -512,6 +520,37 @@ export const refundDecisionSellerEmailTemplate = ({ approved, sellerName, refund
       <p>Status: <strong>${approved ? "Approved" : "Rejected"}</strong></p>
       ${approved ? `<p>Refund amount: <strong>$${Number(amount || 0).toFixed(2)}</strong></p>` : ""}
       ${!approved && reason ? `<p><strong>Rejection reason:</strong> ${reason}</p>` : ""}
+    </div>
+  </body>
+  </html>
+`;
+
+export const refundSellerInputRequestEmailTemplate = ({
+  refundId,
+  orderNumber,
+  productName,
+  customerName,
+  adminMessage,
+  dashboardUrl,
+}) => `
+  <!DOCTYPE html>
+  <html>
+  <head><meta charset="utf-8"></head>
+  <body style="font-family: Arial, sans-serif; color:#333;">
+    <div style="max-width:640px;margin:0 auto;padding:20px;">
+      <h2>Admin Requested Your Input on a Refund</h2>
+      <p>Hello,</p>
+      <p>An admin has requested your input on a refund request.</p>
+      <p><strong>Refund ID:</strong> ${refundId}</p>
+      <p><strong>Order:</strong> #${orderNumber}</p>
+      <p><strong>Product:</strong> ${productName}</p>
+      <p><strong>Customer:</strong> ${customerName}</p>
+      ${
+        adminMessage
+          ? `<p><strong>Message from admin:</strong></p><p style="padding:10px;border-left:3px solid #ccc;background:#f9f9f9;">${adminMessage}</p>`
+          : ""
+      }
+      <p>Please review this refund and reply in your <a href="${dashboardUrl}">seller dashboard</a> as soon as possible.</p>
     </div>
   </body>
   </html>

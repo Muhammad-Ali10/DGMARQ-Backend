@@ -46,6 +46,12 @@ const returnRefundSchema = new Schema(
     orderId: { type: Schema.Types.ObjectId, ref: "Order", required: true },
     productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    /** True when refund was initiated for a guest purchase that was later linked to a user account. */
+    isGuestRefund: { type: Boolean, default: false },
+    /** Original guest purchase email (normalized, lowercased) when isGuestRefund is true. */
+    guestPurchaseEmail: { type: String, trim: true, default: null },
+    /** Order number used for guest verification (optional audit field). */
+    guestOrderNumber: { type: String, trim: true, default: null },
     sellerId: { type: Schema.Types.ObjectId, ref: "Seller", required: true },
     reason: { type: String, required: true },
     status: { type: String, enum: ALL_REFUND_STATUSES, default: "PENDING" },

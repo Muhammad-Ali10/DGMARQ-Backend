@@ -18,6 +18,7 @@ import {
   addRefundMessage,
   getRefundMessages,
   requestSellerInput,
+  validateGuestOrderForRefund,
 } from "../controller/returnrefund.controller.js";
 import { verifyJWT } from "../middlerwares/authmiddlerware.js";
 import { authorizeRoles } from "../middlerwares/authmiddlerware.js";
@@ -35,6 +36,12 @@ router.post("/", verifyJWT, authorizeRoles("customer", "admin"), createReturnRef
 router.get("/my-refunds", verifyJWT, getUserRefunds);
 router.get("/completed-orders", verifyJWT, getCompletedOrdersForRefund);
 router.get("/order-item-keys", verifyJWT, getOrderItemLicenseKeysForRefund);
+router.get(
+  "/guest/validate",
+  verifyJWT,
+  authorizeRoles("customer", "admin"),
+  validateGuestOrderForRefund
+);
 router.post("/:refundId/escalate", verifyJWT, authorizeRoles("customer", "admin"), escalateToAdmin);
 router.get("/:refundId", verifyJWT, getRefundById);
 router.delete("/:refundId", verifyJWT, cancelRefund);

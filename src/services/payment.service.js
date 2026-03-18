@@ -777,7 +777,6 @@ export async function generateAccessToken() {
     const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
     const baseUrl = getPayPalBaseUrl();
 
-    // Debug: log config (no secrets) to help diagnose production auth issues
     logger.info('[PayPal] OAuth token request', {
       baseUrl,
       paypalEnv: process.env.PAYPAL_ENV,

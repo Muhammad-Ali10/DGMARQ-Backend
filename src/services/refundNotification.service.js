@@ -1,8 +1,13 @@
 import { Seller } from "../models/seller.model.js";
 import { Product } from "../models/product.model.js";
 import { User } from "../models/user.model.js";
+import { Order } from "../models/order.model.js";
 import { createNotification } from "./notification.service.js";
-import { sendRefundIssuedEmailToSeller, sendRefundRequestedEmailToSeller } from "./email.service.js";
+import {
+  sendRefundIssuedEmailToSeller,
+  sendRefundRequestedEmailToSeller,
+  sendSellerInputRequestEmailToSeller,
+} from "./email.service.js";
 import { logger } from "../utils/logger.js";
 
 /**
@@ -177,6 +182,100 @@ export const notifySellerOfRefund = async ({ order, refund, refundType, refundAm
       orderId,
       sellerId,
       refundId: refund._id,
+      err: err.message,
+    });
+  }
+};
+
+/**
+ * Purpose: Notify seller when admin explicitly requests their input on a refund.
+ * Creates in-app notification and sends email with context and the admin's note.
+ *
+ * @param {Object} params
+ * @param {Object} params.refund - Refund document (must include orderId, productId, sellerId, userId)
+ * @param {string} [params.note] - Optional admin note/request message
+ */
+export const notifySellerOfSellerInputRequest = async ({ refund, note }) => {
+  const sellerId = refund.sellerId?._id ?? refund.sellerId;
+  const productId = refund.productId?._id ?? refund.productId;
+  const orderId = refund.orderId?._id ?? refund.orderId;
+
+  if (!sellerId || !orderId) {
+    logger.warn("[refundNotification] Missing sellerId or orderId, skipping seller-input notification", {
+      sellerId,
+      orderId,
+      refundId: refund._id,
+    });
+    return;
+  }
+
+  try {
+    const [seller, product, order, customer] = await Promise.all([
+      Seller.findById(sellerId).select("userId shopName").lean(),
+      productId ? Product.findById(productId).select("name").lean() : null,
+      Order.findById(orderId).select("_id orderNumber").lean(),
+      refund.userId ? User.findById(refund.userId).select("name").lean() : null,
+    ]);
+
+    if (!seller || !seller.userId) {
+      logger.warn("[refundNotification] Seller not found or has no userId for seller-input request", {
+        sellerId,
+        refundId: refund._id,
+      });
+      return;
+    }
+
+    const sellerUserId = seller.userId;
+    const productName = product?.name || "Product";
+    const orderDisplay = order?.orderNumber || order?._id?.toString() || orderId.toString();
+    const customerName = customer?.name || "Customer";
+    const adminMessage = typeof note === "string" && note.trim() ? note.trim() : null;
+
+    let message = `Admin requested your input on a refund for Order #${orderDisplay} (${productName}) from ${customerName}.`;
+    if (adminMessage) {
+      message += ` Message from admin: "${adminMessage}".`;
+    }
+
+    const actionUrl = `/seller/return-refunds/${refund._id?.toString?.() || refund._id}`;
+    const notificationData = {
+      refundId: refund._id,
+      orderId,
+      sellerId,
+      productName,
+      customerName,
+      adminMessage,
+      type: "seller_input_requested",
+    };
+
+    await createNotification(
+      sellerUserId,
+      "refund",
+      "Admin Requested Your Input on a Refund",
+      message,
+      notificationData,
+      actionUrl,
+      "high"
+    );
+
+    const sellerUser = await User.findById(sellerUserId).select("email name").lean();
+    if (!sellerUser?.email) {
+      logger.warn("[refundNotification] Seller user or email not found, skipping seller-input email", { sellerUserId });
+      return;
+    }
+
+    await sendSellerInputRequestEmailToSeller({
+      sellerUser,
+      refundId: refund._id?.toString?.() || refund._id,
+      orderNumber: orderDisplay,
+      productName,
+      customerName,
+      adminMessage,
+    });
+  } catch (err) {
+    logger.error("[refundNotification] Failed to notify seller of seller-input request", {
+      refundId: refund._id,
+      sellerId,
+      orderId,
       err: err.message,
     });
   }

@@ -18,9 +18,10 @@ import { getSellerBalance, adjustPayoutForRefund, blockPayoutsForOrder } from ".
 import { processRefund as processPayPalRefund } from "../services/payment.service.js";
 import { Transaction } from "../models/transaction.model.js";
 import { invalidateReviewsForOrder, calculateAverageRating } from "../services/review.service.js";
-import { notifySellerOfRefundRequested } from "../services/refundNotification.service.js";
+import { notifySellerOfRefundRequested, notifySellerOfSellerInputRequest } from "../services/refundNotification.service.js";
 import { handleRefundDecision, handleRefundRequestCreated } from "../services/marketplaceEvents.service.js";
 import { uploadChatImageFromBuffer } from "../utils/cloudinary.js";
+import { decryptKey } from "../utils/encryption.js";
 
 /** Appends entry to refund history (append-only). */
 const pushRefundHistory = (refund, actor, action, previousStatus, newStatus, notes) => {
@@ -33,6 +34,33 @@ const pushRefundHistory = (refund, actor, action, previousStatus, newStatus, not
     notes,
     timestamp: new Date(),
   });
+};
+
+/** Returns a consistently masked representation of a license key.
+ *  IMPORTANT: Uses decrypted key data so the visible suffix matches
+ *  what the customer sees in their license key email.
+ */
+const maskLicenseKeyForDisplay = (keyDoc) => {
+  if (!keyDoc) return "XXXX-****";
+
+  let decrypted = "";
+  try {
+    decrypted = decryptKey(keyDoc.keyData);
+  } catch {
+    // Fallback to _id-based suffix if decryption fails
+    const fallbackSuffix = keyDoc._id?.toString?.().slice(-4) || "****";
+    return `XXXX-${fallbackSuffix}`;
+  }
+
+  if (!decrypted) {
+    const fallbackSuffix = keyDoc._id?.toString?.().slice(-4) || "****";
+    return `XXXX-${fallbackSuffix}`;
+  }
+
+  const asString = typeof decrypted === "string" ? decrypted : JSON.stringify(decrypted);
+  const compact = asString.replace(/\s+/g, "");
+  const lastFour = compact.slice(-4) || "****";
+  return `XXXX-${lastFour}`;
 };
 
 /** Returns order completion date for refund/payout window calc. Fallback: orderCompletedAt, updatedAt, createdAt. */
@@ -66,7 +94,18 @@ const CREATE_REFUND_TYPES = ["WALLET", "ORIGINAL_PAYMENT"];
 
 /** Creates refund request. Validates order, keys, evidence. Notifies seller. */
 const createReturnRefund = asyncHandler(async (req, res) => {
-  const { orderId, productId, reason, licenseKeyIds: rawLicenseKeyIds, evidenceFiles, refundMethod: rawRefundMethod, refundType } = req.body;
+  const {
+    orderId,
+    productId,
+    reason,
+    licenseKeyIds: rawLicenseKeyIds,
+    evidenceFiles,
+    refundMethod: rawRefundMethod,
+    refundType,
+    isGuestRefund,
+    purchaseEmail,
+    orderNumber,
+  } = req.body;
   const userId = req.user._id;
 
   if (!orderId || !productId || !reason) {
@@ -74,8 +113,8 @@ const createReturnRefund = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Order ID, product ID, and reason are required");
   }
 
-  const refundMethod = (rawRefundMethod || refundType || "WALLET").toString().toUpperCase().trim();
-  if (!CREATE_REFUND_TYPES.includes(refundMethod)) {
+  const requestedRefundMethod = (rawRefundMethod || refundType || "WALLET").toString().toUpperCase().trim();
+  if (!CREATE_REFUND_TYPES.includes(requestedRefundMethod)) {
     throw new ApiError(400, `refundType must be one of: ${CREATE_REFUND_TYPES.join(", ")}`);
   }
 
@@ -88,15 +127,57 @@ const createReturnRefund = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Invalid order ID or product ID");
   }
 
-  const order = await Order.findOne({
+  let order = await Order.findOne({
     _id: orderId,
     userId,
     paymentStatus: "paid",
     orderStatus: { $in: ["completed", "PARTIALLY_REFUNDED", "partially_completed"] },
   }).populate("items.productId", "productType sellerId");
 
+  // Fallback path: guest purchase that is being refunded after account creation.
+  if (!order && isGuestRefund) {
+    const normalizedPurchaseEmail = typeof purchaseEmail === "string" ? purchaseEmail.trim().toLowerCase() : null;
+    if (!normalizedPurchaseEmail) {
+      throw new ApiError(400, "Purchase email is required when refunding a guest purchase");
+    }
+
+    const guestBaseFilter = {
+      isGuest: true,
+      guestEmail: normalizedPurchaseEmail,
+      paymentStatus: "paid",
+      orderStatus: { $in: ["completed", "PARTIALLY_REFUNDED", "partially_completed"] },
+    };
+
+    // Primary: lookup by _id (orderId is already validated as ObjectId above)
+    order = await Order.findOne({ ...guestBaseFilter, _id: orderId }).populate("items.productId", "productType sellerId");
+
+    // Fallback: if orderNumber was provided and primary lookup failed, try by orderNumber
+    if (!order && orderNumber) {
+      const normalizedOrderNumber = String(orderNumber).trim();
+      order = await Order.findOne({ ...guestBaseFilter, orderNumber: normalizedOrderNumber }).populate("items.productId", "productType sellerId");
+    }
+
+    if (order) {
+      // Link this guest order to the authenticated user for future operations.
+      if (!order.userId) {
+        order.userId = userId;
+      }
+      if (order.isGuest) {
+        order.isGuest = false;
+      }
+      try {
+        await order.save();
+      } catch (e) {
+        logger.warn("[createReturnRefund] Failed to convert guest order to user-owned order", {
+          orderId: order._id?.toString(),
+          error: e.message,
+        });
+      }
+    }
+  }
+
   if (!order) {
-    logger.warn("[createReturnRefund] Order not found or not eligible", { orderId, userId: userId?.toString() });
+    logger.warn("[createReturnRefund] Order not found or not eligible", { orderId, userId: userId?.toString(), isGuestRefund: !!isGuestRefund });
     throw new ApiError(404, "Order not found or not eligible for refund. Only completed or partially refunded orders can request more refunds.");
   }
 
@@ -171,7 +252,25 @@ const createReturnRefund = asyncHandler(async (req, res) => {
   const unitPrice = orderItem.unitPrice ?? 0;
   const keyCount = licenseKeyIds.length;
   const requestedRefundAmount = keyCount > 0 ? Math.round(unitPrice * keyCount * 100) / 100 : (orderItem.lineTotal ?? 0);
-  const isOriginalPayment = refundMethod === "ORIGINAL_PAYMENT" || refundMethod === "MANUAL";
+
+  // Enforce refund method restrictions based on original payment method.
+  const paymentMethod = (order.paymentMethod || "").toString();
+  const paymentMethodLower = paymentMethod.toLowerCase();
+  const includesWallet = paymentMethodLower.includes("wallet");
+
+  let effectiveRefundMethod = requestedRefundMethod;
+  if (includesWallet) {
+    if (effectiveRefundMethod !== "WALLET") {
+      logger.warn("[createReturnRefund] Forcing wallet refund due to wallet-based payment", {
+        orderId: order._id?.toString(),
+        paymentMethod,
+        requestedRefundMethod,
+      });
+    }
+    effectiveRefundMethod = "WALLET";
+  }
+
+  const isOriginalPayment = effectiveRefundMethod === "ORIGINAL_PAYMENT" || effectiveRefundMethod === "MANUAL";
   const storedRefundMethod = isOriginalPayment ? "ORIGINAL_PAYMENT" : "WALLET";
   const initialStatus = "ADMIN_REVIEW";
   const initialStage = "ADMIN_REVIEW";
@@ -180,6 +279,13 @@ const createReturnRefund = asyncHandler(async (req, res) => {
     orderId: new mongoose.Types.ObjectId(actualOrderId),
     productId: new mongoose.Types.ObjectId(actualProductId),
     userId: new mongoose.Types.ObjectId(userId),
+    isGuestRefund: !!isGuestRefund,
+    guestPurchaseEmail: isGuestRefund
+      ? (typeof purchaseEmail === "string" ? purchaseEmail.trim().toLowerCase() : order.guestEmail || null)
+      : null,
+    guestOrderNumber: isGuestRefund
+      ? (order.orderNumber || (orderNumber ? String(orderNumber).trim() : null))
+      : null,
     sellerId: new mongoose.Types.ObjectId(actualSellerId),
     reason: reason.trim(),
     status: initialStatus,
@@ -1232,12 +1338,11 @@ const getOrderItemLicenseKeysForRefund = asyncHandler(async (req, res) => {
     const key = licenseKeyDoc.keys.id(keyId);
     if (!key) continue;
     const status = key.isRefunded ? "refunded" : "active";
-    const suffix = key._id.toString().slice(-4);
     const issuedAt = key.assignedAt || orderCompletedAt;
     keys.push({
       licenseKeyId: key._id.toString(),
       keyId: key._id.toString(),
-      keyValue: `XXXX-${suffix}`,
+      keyValue: maskLicenseKeyForDisplay(key),
       price: unitPrice,
       deliveryType,
       productType: orderItem.productId?.productType || "LICENSE_KEY",
@@ -1251,6 +1356,148 @@ const getOrderItemLicenseKeysForRefund = asyncHandler(async (req, res) => {
       keys: keys.filter((k) => k.status !== "refunded"),
       productType: orderItem.productId?.productType || "LICENSE_KEY",
     }, "License keys for refund selection retrieved successfully")
+  );
+});
+
+/**
+ * Normalizes an order ID coming from user input or email.
+ * - Trims whitespace
+ * - Strips a leading "#" (e.g. "#69b93a21a0..." -> "69b93a21a0...")
+ * - Strips a common "Order #..." prefix if present
+ */
+const normalizeOrderId = (raw) => {
+  if (typeof raw !== "string") return null;
+  let value = raw.trim();
+  if (!value) return null;
+  // Handle "Order #ABC123" or "order #ABC123"
+  value = value.replace(/^order\s*#/i, "").trim();
+  // Handle a simple leading "#ABC123"
+  value = value.replace(/^#/, "").trim();
+  return value || null;
+};
+
+/**
+ * Validates a guest purchase for refund after account creation and returns masked keys
+ * for all eligible items in the order. Requires that:
+ * - The order was placed as a guest.
+ * - purchaseEmail matches both the order's guestEmail and the authenticated user's email.
+ * - The order is found by MongoDB _id (Order ID) or by orderNumber (fallback).
+ */
+const validateGuestOrderForRefund = asyncHandler(async (req, res) => {
+  const rawPurchaseEmail = req.query.purchaseEmail || req.body?.purchaseEmail;
+  const rawOrderId = req.query.orderId || req.body?.orderId;
+
+  const purchaseEmail = typeof rawPurchaseEmail === "string" ? rawPurchaseEmail.trim().toLowerCase() : null;
+  const orderIdStr = normalizeOrderId(rawOrderId);
+
+  if (!purchaseEmail || !orderIdStr) {
+    throw new ApiError(400, "Purchase email and order ID are required for guest purchase refunds");
+  }
+
+  const baseFilter = {
+    isGuest: true,
+    guestEmail: purchaseEmail,
+    paymentStatus: "paid",
+    orderStatus: { $in: ["completed", "PARTIALLY_REFUNDED", "partially_completed"] },
+  };
+  const selectFields = "_id orderNumber createdAt totalAmount items orderCompletedAt updatedAt guestEmail paymentStatus orderStatus";
+  const populateOpts = { path: "items.productId", select: "name images productType" };
+
+  let order = null;
+
+  // Primary lookup: try as MongoDB ObjectId
+  if (mongoose.Types.ObjectId.isValid(orderIdStr)) {
+    order = await Order.findOne({ ...baseFilter, _id: new mongoose.Types.ObjectId(orderIdStr) })
+      .select(selectFields)
+      .populate(populateOpts);
+  }
+
+  // Fallback lookup: try as orderNumber
+  if (!order) {
+    order = await Order.findOne({ ...baseFilter, orderNumber: orderIdStr })
+      .select(selectFields)
+      .populate(populateOpts);
+  }
+
+  if (!order) {
+    throw new ApiError(404, "Guest order not found or not eligible for refund");
+  }
+
+  if (!isWithinRefundWindow(order)) {
+    throw new ApiError(400, "Refund period expired. Refunds are allowed only within 10 days of order completion.");
+  }
+
+  const orderCompletedAt = order.orderCompletedAt || order.createdAt;
+
+  const itemsWithKeys = [];
+  for (const item of order.items) {
+    if (item.refunded) continue;
+
+    const keyIds = item.assignedKeyIds || [];
+    if (keyIds.length === 0) continue;
+
+    const productId = item.productId?._id || item.productId;
+    if (!productId) continue;
+
+    const licenseKeyDoc = await LicenseKey.findOne({
+      productId: new mongoose.Types.ObjectId(productId),
+    }).select("keys");
+    if (!licenseKeyDoc) continue;
+
+    const keys = [];
+    for (const keyId of keyIds) {
+      const key = licenseKeyDoc.keys.id(keyId);
+      if (!key || key.isRefunded) continue;
+      const issuedAt = key.assignedAt || orderCompletedAt;
+      keys.push({
+        licenseKeyId: key._id.toString(),
+        keyId: key._id.toString(),
+        displayKey: maskLicenseKeyForDisplay(key),
+        status: "active",
+        issuedAt: issuedAt ? new Date(issuedAt).toISOString() : null,
+      });
+    }
+
+    if (keys.length === 0) continue;
+
+    itemsWithKeys.push({
+      productId: productId.toString(),
+      productName: item.productId?.name || "Product",
+      productImage: item.productId?.images?.[0] || null,
+      productType: item.productId?.productType || "LICENSE_KEY",
+      unitPrice: item.unitPrice,
+      qty: item.qty,
+      lineTotal: item.lineTotal,
+      keys,
+    });
+  }
+
+  if (itemsWithKeys.length === 0) {
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          orderId: order._id.toString(),
+          orderNumber: order.orderNumber,
+          purchaseEmail: order.guestEmail,
+          items: [],
+        },
+        "No eligible keys available for refund on this order"
+      )
+    );
+  }
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+        purchaseEmail: order.guestEmail,
+        items: itemsWithKeys,
+      },
+      "Guest order verified. Select keys for refund."
+    )
   );
 });
 
@@ -1355,9 +1602,12 @@ const addRefundMessage = asyncHandler(async (req, res) => {
         },
       };
 
+      // Collect all participant user IDs to notify (deduplicated)
+      const recipientIds = new Set();
+
       // Notify customer
       if (refund.userId) {
-        io.to(`user:${refund.userId.toString()}`).emit("refund_message", payload);
+        recipientIds.add(refund.userId.toString());
       }
 
       // Notify seller (mapped to seller's user account)
@@ -1366,7 +1616,21 @@ const addRefundMessage = asyncHandler(async (req, res) => {
         .lean()
         .catch(() => null);
       if (sellerDoc?.userId) {
-        io.to(`user:${sellerDoc.userId.toString()}`).emit("refund_message", payload);
+        recipientIds.add(sellerDoc.userId.toString());
+      }
+
+      // Notify all admins
+      const admins = await User.find(
+        { roles: { $in: ["admin"] }, isActive: true },
+        { _id: 1 }
+      ).lean().catch(() => []);
+      for (const admin of admins || []) {
+        recipientIds.add(admin._id.toString());
+      }
+
+      // Emit to all participants
+      for (const recipientId of recipientIds) {
+        io.to(`user:${recipientId}`).emit("refund_message", payload);
       }
     } catch (socketErr) {
       logger.warn("[addRefundMessage] Failed to emit refund_message over socket", {
@@ -1421,6 +1685,46 @@ const requestSellerInput = asyncHandler(async (req, res) => {
     createdAt: new Date(),
   });
   await refund.save();
+
+  // Emit real-time update for the system message to all participants
+  const io = req.app.get("io");
+  if (io) {
+    try {
+      const added = refund.refundMessages[refund.refundMessages.length - 1];
+      const payload = {
+        refundId: refund._id,
+        message: {
+          _id: added._id,
+          senderId: added.senderId,
+          senderRole: added.senderRole,
+          message: added.message,
+          attachments: [],
+          createdAt: added.createdAt,
+        },
+      };
+
+      const recipientIds = new Set();
+      if (refund.userId) recipientIds.add(refund.userId.toString());
+      const sellerDoc = await Seller.findById(refund.sellerId).select("userId").lean().catch(() => null);
+      if (sellerDoc?.userId) recipientIds.add(sellerDoc.userId.toString());
+      recipientIds.add(req.user._id.toString()); // admin sender
+
+      for (const recipientId of recipientIds) {
+        io.to(`user:${recipientId}`).emit("refund_message", payload);
+      }
+    } catch (socketErr) {
+      logger.warn("[requestSellerInput] Failed to emit refund_message over socket", { refundId, error: socketErr?.message });
+    }
+  }
+
+   // Notify seller via in-app notification and email (non-blocking for main refund flow)
+  notifySellerOfSellerInputRequest({ refund, note }).catch((err) =>
+    logger.error("[requestSellerInput] Failed to notify seller of seller-input request", {
+      refundId,
+      err: err.message,
+    })
+  );
+
   await auditLog(req.user._id, "REFUND_SELLER_INPUT_REQUESTED", `Admin requested seller input for refund ${refundId}`, {
     actor: "admin",
     refundId,
@@ -1492,4 +1796,5 @@ export {
   addRefundMessage,
   getRefundMessages,
   requestSellerInput,
+  validateGuestOrderForRefund,
 };

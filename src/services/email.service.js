@@ -1,5 +1,5 @@
-import nodemailer from 'nodemailer';
-import mongoose from 'mongoose';
+import nodemailer from "nodemailer";
+import mongoose from "mongoose";
 import {
   licenseKeyEmailTemplate,
   orderConfirmationEmailTemplate,
@@ -9,24 +9,25 @@ import {
   refundRequestAdminEmailTemplate,
   refundIssuedSellerEmailTemplate,
   refundRequestedSellerEmailTemplate,
+  refundSellerInputRequestEmailTemplate,
   sellerProfileApprovedEmailTemplate,
   sellerProfileRejectedEmailTemplate,
   sellerProfileSubmissionAdminEmailTemplate,
   sellerProfileSubmissionSellerEmailTemplate,
   sellerNewOrderEmailTemplate,
   supportTicketCreatedAdminEmailTemplate,
-} from '../utils/emailTemplates.js';
-import { EmailLog } from '../models/emailLog.model.js';
-import { decryptKey } from '../utils/encryption.js';
-import { LicenseKey } from '../models/licensekey.model.js';
-import { logger } from '../utils/logger.js';
+} from "../utils/emailTemplates.js";
+import { EmailLog } from "../models/emailLog.model.js";
+import { decryptKey } from "../utils/encryption.js";
+import { LicenseKey } from "../models/licensekey.model.js";
+import { logger } from "../utils/logger.js";
 
 const createTransporter = () => {
   if (process.env.SMTP_HOST) {
     return nodemailer.createTransport({
       host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: process.env.SMTP_SECURE === 'true',
+      port: parseInt(process.env.SMTP_PORT || "587"),
+      secure: process.env.SMTP_SECURE === "true",
       auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
@@ -34,12 +35,12 @@ const createTransporter = () => {
     });
   }
 
-  return nodemailer.createTransporter({
-    host: 'smtp.ethereal.email',
+  return nodemailer.createTransport({
+    host: "smtp.ethereal.email",
     port: 587,
     auth: {
-      user: process.env.ETHEREAL_USER || 'test@ethereal.email',
-      pass: process.env.ETHEREAL_PASS || 'test',
+      user: process.env.ETHEREAL_USER || "test@ethereal.email",
+      pass: process.env.ETHEREAL_PASS || "test",
     },
   });
 };
@@ -47,7 +48,10 @@ const createTransporter = () => {
 const sendAndLogEmail = async ({ to, subject, html, template }) => {
   const transporter = createTransporter();
   await transporter.sendMail({
-    from: process.env.EMAIL_FROM || 'noreply@dgmarq.com',
+    from: {
+      name: process.env.EMAIL_FROM_NAME || "DG Marq",
+      address: process.env.EMAIL_FROM || "noreply@dgmarq.com",
+    },
     to,
     subject,
     html,
@@ -57,7 +61,7 @@ const sendAndLogEmail = async ({ to, subject, html, template }) => {
     recipient: to,
     subject,
     template,
-    status: 'sent',
+    status: "sent",
     sentAt: new Date(),
   });
 };
@@ -65,9 +69,9 @@ const sendAndLogEmail = async ({ to, subject, html, template }) => {
 export const sendLicenseKeyEmail = async (order, user) => {
   try {
     const transporter = createTransporter();
-    
+
     if (!order || !user) {
-      throw new Error('Order and user are required');
+      throw new Error("Order and user are required");
     }
 
     if (!order._id || !mongoose.Types.ObjectId.isValid(order._id)) {
@@ -75,22 +79,24 @@ export const sendLicenseKeyEmail = async (order, user) => {
     }
 
     if (order.items && order.items.length > 0) {
-      const { Product } = await import('../models/product.model.js');
+      const { Product } = await import("../models/product.model.js");
       for (const item of order.items) {
         if (item.productId && !item.productId.name) {
-          const product = await Product.findById(item.productId).select('name images productType').lean();
+          const product = await Product.findById(item.productId)
+            .select("name images productType")
+            .lean();
           if (product) {
             item.productId = product;
           } else if (!item.name) {
-            item.name = 'Product name unavailable';
+            item.name = "Product name unavailable";
           }
         }
       }
     }
 
     const keyIds = order.items
-      .filter(item => item.assignedKeyIds && item.assignedKeyIds.length > 0)
-      .flatMap(item => item.assignedKeyIds);
+      .filter((item) => item.assignedKeyIds && item.assignedKeyIds.length > 0)
+      .flatMap((item) => item.assignedKeyIds);
 
     const productIds = [];
     for (const item of order.items) {
@@ -98,14 +104,14 @@ export const sendLicenseKeyEmail = async (order, user) => {
         logger.warn(`Order item missing productId in order ${order._id}`);
         continue;
       }
-      
+
       let productIdValue;
-      if (typeof item.productId === 'object' && item.productId._id) {
+      if (typeof item.productId === "object" && item.productId._id) {
         productIdValue = item.productId._id;
       } else {
         productIdValue = item.productId;
       }
-      
+
       const productIdStr = productIdValue.toString();
       if (mongoose.Types.ObjectId.isValid(productIdStr)) {
         productIds.push(productIdStr);
@@ -117,12 +123,12 @@ export const sendLicenseKeyEmail = async (order, user) => {
     const uniqueProductIds = [...new Set(productIds)];
     if (uniqueProductIds.length === 0) {
       logger.warn(`No valid productIds found in order ${order._id}`);
-      throw new Error('No valid product IDs found in order');
+      throw new Error("No valid product IDs found in order");
     }
 
     const validObjectIds = uniqueProductIds
-      .filter(id => mongoose.Types.ObjectId.isValid(id))
-      .map(id => {
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => {
         try {
           return new mongoose.Types.ObjectId(id);
         } catch (error) {
@@ -130,16 +136,16 @@ export const sendLicenseKeyEmail = async (order, user) => {
           return null;
         }
       })
-      .filter(id => id !== null);
+      .filter((id) => id !== null);
 
     if (validObjectIds.length === 0) {
-      throw new Error('No valid product ObjectIds found');
+      throw new Error("No valid product ObjectIds found");
     }
 
     const licenseKeyDocs = await LicenseKey.find({
       productId: { $in: validObjectIds },
     });
-    
+
     const keyToItemMap = new Map();
     for (const item of order.items) {
       if (item.assignedKeyIds && item.assignedKeyIds.length > 0) {
@@ -148,14 +154,16 @@ export const sendLicenseKeyEmail = async (order, user) => {
         }
       }
     }
-    
+
     const decryptedKeys = [];
     for (const item of order.items) {
       if (item.assignedKeyIds && item.assignedKeyIds.length > 0) {
         for (const keyId of item.assignedKeyIds) {
           let found = false;
           for (const doc of licenseKeyDocs) {
-            const key = doc.keys.find(k => k._id.toString() === keyId.toString());
+            const key = doc.keys.find(
+              (k) => k._id.toString() === keyId.toString(),
+            );
             if (key) {
               try {
                 const decrypted = decryptKey(key.keyData);
@@ -164,29 +172,41 @@ export const sendLicenseKeyEmail = async (order, user) => {
                 break;
               } catch (error) {
                 logger.error(`Failed to decrypt key ${key._id}`, error);
-                decryptedKeys.push('[Decryption Error]');
+                decryptedKeys.push("[Decryption Error]");
                 found = true;
                 break;
               }
             }
           }
           if (!found) {
-            logger.warn(`Key ${keyId} not found in license key documents for order ${order._id}`);
-            decryptedKeys.push('[Key Not Found]');
+            logger.warn(
+              `Key ${keyId} not found in license key documents for order ${order._id}`,
+            );
+            decryptedKeys.push("[Key Not Found]");
           }
         }
       }
     }
 
-    const html = licenseKeyEmailTemplate(order, decryptedKeys, user, keyToItemMap);
+    const html = licenseKeyEmailTemplate(
+      order,
+      decryptedKeys,
+      user,
+      keyToItemMap,
+    );
 
-    const hasAccountProducts = order.items.some(item => item.productId?.productType === 'ACCOUNT_BASED');
-    const subject = hasAccountProducts 
+    const hasAccountProducts = order.items.some(
+      (item) => item.productId?.productType === "ACCOUNT_BASED",
+    );
+    const subject = hasAccountProducts
       ? `Your Order Details - Order #${order._id}`
       : `Your License Keys - Order #${order._id}`;
 
     const mailOptions = {
-      from: process.env.EMAIL_FROM || 'noreply@dgmarq.com',
+      from: {
+        name: process.env.EMAIL_FROM_NAME || "DG Marq",
+        address: process.env.EMAIL_FROM || "noreply@dgmarq.com",
+      },
       to: user.email,
       subject,
       html,
@@ -194,44 +214,49 @@ export const sendLicenseKeyEmail = async (order, user) => {
 
     const info = await transporter.sendMail(mailOptions);
 
-    const orderId = mongoose.Types.ObjectId.isValid(order._id) 
-      ? new mongoose.Types.ObjectId(order._id) 
+    const orderId = mongoose.Types.ObjectId.isValid(order._id)
+      ? new mongoose.Types.ObjectId(order._id)
       : null;
 
     await EmailLog.create({
       recipient: user.email,
       subject: mailOptions.subject,
-      template: 'licenseKey',
-      status: 'sent',
+      template: "licenseKey",
+      status: "sent",
       orderId: orderId,
       sentAt: new Date(),
     });
 
     for (let i = 0; i < order.items.length; i++) {
-      if (order.items[i].assignedKeyIds && order.items[i].assignedKeyIds.length > 0) {
+      if (
+        order.items[i].assignedKeyIds &&
+        order.items[i].assignedKeyIds.length > 0
+      ) {
         order.items[i].keyDeliveryEmail = user.email;
-        order.items[i].keyDeliveryStatus = 'sent';
+        order.items[i].keyDeliveryStatus = "sent";
         order.items[i].keyDeliveredAt = new Date();
       }
     }
 
     for (const doc of licenseKeyDocs) {
       const docKeyIds = doc.keys
-        .filter(key => keyIds.some(id => id.toString() === key._id.toString()))
-        .map(key => key._id);
-      
+        .filter((key) =>
+          keyIds.some((id) => id.toString() === key._id.toString()),
+        )
+        .map((key) => key._id);
+
       if (docKeyIds.length > 0) {
         await LicenseKey.updateOne(
           { _id: doc._id },
           {
             $set: {
-              'keys.$[key].emailSent': true,
-              'keys.$[key].emailSentAt': new Date(),
+              "keys.$[key].emailSent": true,
+              "keys.$[key].emailSentAt": new Date(),
             },
           },
           {
-            arrayFilters: [{ 'key._id': { $in: docKeyIds } }],
-          }
+            arrayFilters: [{ "key._id": { $in: docKeyIds } }],
+          },
         );
       }
     }
@@ -240,17 +265,18 @@ export const sendLicenseKeyEmail = async (order, user) => {
 
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    logger.error('Failed to send license key email', error);
-    
-    const orderIdForError = order && order._id && mongoose.Types.ObjectId.isValid(order._id)
-      ? new mongoose.Types.ObjectId(order._id)
-      : null;
+    logger.error("Failed to send license key email", error);
+
+    const orderIdForError =
+      order && order._id && mongoose.Types.ObjectId.isValid(order._id)
+        ? new mongoose.Types.ObjectId(order._id)
+        : null;
 
     await EmailLog.create({
-      recipient: user?.email || 'unknown',
-      subject: `Your License Keys - Order #${order?._id || 'unknown'}`,
-      template: 'licenseKey',
-      status: 'failed',
+      recipient: user?.email || "unknown",
+      subject: `Your License Keys - Order #${order?._id || "unknown"}`,
+      template: "licenseKey",
+      status: "failed",
       orderId: orderIdForError,
       error: error.message,
     });
@@ -262,47 +288,57 @@ export const sendLicenseKeyEmail = async (order, user) => {
 export const sendLicenseKeyEmailToGuest = async (order, guestEmail) => {
   try {
     const transporter = createTransporter();
-    const emailTrimmed = typeof guestEmail === 'string' ? guestEmail.trim().toLowerCase() : '';
+    const emailTrimmed =
+      typeof guestEmail === "string" ? guestEmail.trim().toLowerCase() : "";
     if (!emailTrimmed) {
-      throw new Error('Guest email is required');
+      throw new Error("Guest email is required");
     }
     if (!order || !order._id || !mongoose.Types.ObjectId.isValid(order._id)) {
       throw new Error(`Invalid order: ${order?._id}`);
     }
-    const guestUser = { email: emailTrimmed, name: 'Guest' };
+    const guestUser = { email: emailTrimmed, name: "Guest" };
     if (order.items && order.items.length > 0) {
-      const { Product } = await import('../models/product.model.js');
+      const { Product } = await import("../models/product.model.js");
       for (const item of order.items) {
         if (item.productId && !item.productId.name) {
-          const product = await Product.findById(item.productId).select('name images productType').lean();
+          const product = await Product.findById(item.productId)
+            .select("name images productType")
+            .lean();
           if (product) {
             item.productId = product;
           } else if (!item.name) {
-            item.name = 'Product name unavailable';
+            item.name = "Product name unavailable";
           }
         }
       }
     }
     const keyIds = order.items
-      .filter(item => item.assignedKeyIds && item.assignedKeyIds.length > 0)
-      .flatMap(item => item.assignedKeyIds);
+      .filter((item) => item.assignedKeyIds && item.assignedKeyIds.length > 0)
+      .flatMap((item) => item.assignedKeyIds);
     const productIds = [];
     for (const item of order.items) {
       if (!item.productId) continue;
-      const productIdValue = typeof item.productId === 'object' && item.productId._id ? item.productId._id : item.productId;
+      const productIdValue =
+        typeof item.productId === "object" && item.productId._id
+          ? item.productId._id
+          : item.productId;
       const productIdStr = productIdValue.toString();
-      if (mongoose.Types.ObjectId.isValid(productIdStr)) productIds.push(productIdStr);
+      if (mongoose.Types.ObjectId.isValid(productIdStr))
+        productIds.push(productIdStr);
     }
     const uniqueProductIds = [...new Set(productIds)];
     if (uniqueProductIds.length === 0) {
-      throw new Error('No valid product IDs found in order');
+      throw new Error("No valid product IDs found in order");
     }
     const validObjectIds = uniqueProductIds
-      .filter(id => mongoose.Types.ObjectId.isValid(id))
-      .map(id => new mongoose.Types.ObjectId(id))
-      .filter(id => id !== null);
-    if (validObjectIds.length === 0) throw new Error('No valid product ObjectIds found');
-    const licenseKeyDocs = await LicenseKey.find({ productId: { $in: validObjectIds } });
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id))
+      .filter((id) => id !== null);
+    if (validObjectIds.length === 0)
+      throw new Error("No valid product ObjectIds found");
+    const licenseKeyDocs = await LicenseKey.find({
+      productId: { $in: validObjectIds },
+    });
     const keyToItemMap = new Map();
     for (const item of order.items) {
       if (item.assignedKeyIds && item.assignedKeyIds.length > 0) {
@@ -317,74 +353,99 @@ export const sendLicenseKeyEmailToGuest = async (order, guestEmail) => {
         for (const keyId of item.assignedKeyIds) {
           let found = false;
           for (const doc of licenseKeyDocs) {
-            const key = doc.keys.find(k => k._id.toString() === keyId.toString());
+            const key = doc.keys.find(
+              (k) => k._id.toString() === keyId.toString(),
+            );
             if (key) {
               try {
                 decryptedKeys.push(decryptKey(key.keyData));
               } catch (error) {
                 logger.error(`Failed to decrypt key ${key._id}`, error);
-                decryptedKeys.push('[Decryption Error]');
+                decryptedKeys.push("[Decryption Error]");
               }
               found = true;
               break;
             }
           }
-          if (!found) decryptedKeys.push('[Key Not Found]');
+          if (!found) decryptedKeys.push("[Key Not Found]");
         }
       }
     }
-    const html = licenseKeyEmailTemplate(order, decryptedKeys, guestUser, keyToItemMap);
-    const hasAccountProducts = order.items.some(item => item.productId?.productType === 'ACCOUNT_BASED');
+    const html = licenseKeyEmailTemplate(
+      order,
+      decryptedKeys,
+      guestUser,
+      keyToItemMap,
+    );
+    const hasAccountProducts = order.items.some(
+      (item) => item.productId?.productType === "ACCOUNT_BASED",
+    );
     const subject = hasAccountProducts
       ? `Your Order Details - Order #${order._id}`
       : `Your License Keys - Order #${order._id}`;
     const mailOptions = {
-      from: process.env.EMAIL_FROM || 'noreply@dgmarq.com',
+      from: {
+        name: process.env.EMAIL_FROM_NAME || "DG Marq",
+        address: process.env.EMAIL_FROM || "noreply@dgmarq.com",
+      },
       to: emailTrimmed,
       subject,
       html,
     };
     const info = await transporter.sendMail(mailOptions);
-    const orderIdObj = mongoose.Types.ObjectId.isValid(order._id) ? new mongoose.Types.ObjectId(order._id) : null;
+    const orderIdObj = mongoose.Types.ObjectId.isValid(order._id)
+      ? new mongoose.Types.ObjectId(order._id)
+      : null;
     await EmailLog.create({
       recipient: emailTrimmed,
       subject: mailOptions.subject,
-      template: 'licenseKey',
-      status: 'sent',
+      template: "licenseKey",
+      status: "sent",
       orderId: orderIdObj,
       sentAt: new Date(),
     });
     for (let i = 0; i < order.items.length; i++) {
-      if (order.items[i].assignedKeyIds && order.items[i].assignedKeyIds.length > 0) {
+      if (
+        order.items[i].assignedKeyIds &&
+        order.items[i].assignedKeyIds.length > 0
+      ) {
         order.items[i].keyDeliveryEmail = emailTrimmed;
-        order.items[i].keyDeliveryStatus = 'sent';
+        order.items[i].keyDeliveryStatus = "sent";
         order.items[i].keyDeliveredAt = new Date();
       }
     }
     for (const doc of licenseKeyDocs) {
       const docKeyIds = doc.keys
-        .filter(key => keyIds.some(id => id.toString() === key._id.toString()))
-        .map(key => key._id);
+        .filter((key) =>
+          keyIds.some((id) => id.toString() === key._id.toString()),
+        )
+        .map((key) => key._id);
       if (docKeyIds.length > 0) {
         await LicenseKey.updateOne(
           { _id: doc._id },
-          { $set: { 'keys.$[key].emailSent': true, 'keys.$[key].emailSentAt': new Date() } },
-          { arrayFilters: [{ 'key._id': { $in: docKeyIds } }] }
+          {
+            $set: {
+              "keys.$[key].emailSent": true,
+              "keys.$[key].emailSentAt": new Date(),
+            },
+          },
+          { arrayFilters: [{ "key._id": { $in: docKeyIds } }] },
         );
       }
     }
     await order.save();
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    logger.error('Failed to send license key email to guest', error);
-    const orderIdForError = order && order._id && mongoose.Types.ObjectId.isValid(order._id)
-      ? new mongoose.Types.ObjectId(order._id)
-      : null;
+    logger.error("Failed to send license key email to guest", error);
+    const orderIdForError =
+      order && order._id && mongoose.Types.ObjectId.isValid(order._id)
+        ? new mongoose.Types.ObjectId(order._id)
+        : null;
     await EmailLog.create({
-      recipient: guestEmail || 'unknown',
-      subject: `Your License Keys - Order #${order?._id || 'unknown'}`,
-      template: 'licenseKey',
-      status: 'failed',
+      recipient: guestEmail || "unknown",
+      subject: `Your License Keys - Order #${order?._id || "unknown"}`,
+      template: "licenseKey",
+      status: "failed",
       orderId: orderIdForError,
       error: error.message,
     });
@@ -395,7 +456,7 @@ export const sendLicenseKeyEmailToGuest = async (order, guestEmail) => {
 export const sendOrderConfirmation = async (order, user) => {
   try {
     if (!order || !user) {
-      throw new Error('Order and user are required');
+      throw new Error("Order and user are required");
     }
 
     if (!order._id || !mongoose.Types.ObjectId.isValid(order._id)) {
@@ -403,14 +464,16 @@ export const sendOrderConfirmation = async (order, user) => {
     }
 
     if (order.items && order.items.length > 0) {
-      const { Product } = await import('../models/product.model.js');
+      const { Product } = await import("../models/product.model.js");
       for (const item of order.items) {
         if (item.productId && !item.productId.name) {
-          const product = await Product.findById(item.productId).select('name images productType').lean();
+          const product = await Product.findById(item.productId)
+            .select("name images productType")
+            .lean();
           if (product) {
             item.productId = product;
           } else if (!item.name) {
-            item.name = 'Product name unavailable';
+            item.name = "Product name unavailable";
           }
         }
       }
@@ -420,47 +483,56 @@ export const sendOrderConfirmation = async (order, user) => {
     const html = orderConfirmationEmailTemplate(order, user);
 
     const mailOptions = {
-      from: process.env.EMAIL_FROM || 'noreply@dgmarq.com',
+      from: {
+        name: process.env.EMAIL_FROM_NAME || "DG Marq",
+        address: process.env.EMAIL_FROM || "noreply@dgmarq.com",
+      },
       to: user.email,
       subject: `Order Confirmation - Order #${order._id}`,
       html,
     };
 
     const info = await transporter.sendMail(mailOptions);
-    logger.info(`Order confirmation email sent to ${user.email} for order ${order._id}`);
+    logger.info(
+      `Order confirmation email sent to ${user.email} for order ${order._id}`,
+    );
 
-    const orderId = mongoose.Types.ObjectId.isValid(order._id) 
-      ? new mongoose.Types.ObjectId(order._id) 
+    const orderId = mongoose.Types.ObjectId.isValid(order._id)
+      ? new mongoose.Types.ObjectId(order._id)
       : null;
 
     await EmailLog.create({
       recipient: user.email,
       subject: mailOptions.subject,
-      template: 'orderConfirmation',
-      status: 'sent',
+      template: "orderConfirmation",
+      status: "sent",
       orderId: orderId,
       sentAt: new Date(),
     });
 
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    logger.error('Failed to send order confirmation', error);
-    
-    const orderIdForError = order && order._id && mongoose.Types.ObjectId.isValid(order._id)
-      ? new mongoose.Types.ObjectId(order._id)
-      : null;
+    logger.error("Failed to send order confirmation", error);
+
+    const orderIdForError =
+      order && order._id && mongoose.Types.ObjectId.isValid(order._id)
+        ? new mongoose.Types.ObjectId(order._id)
+        : null;
 
     await EmailLog.create({
-      recipient: user?.email || 'unknown',
-      subject: `Order Confirmation - Order #${order?._id || 'unknown'}`,
-      template: 'orderConfirmation',
-      status: 'failed',
+      recipient: user?.email || "unknown",
+      subject: `Order Confirmation - Order #${order?._id || "unknown"}`,
+      template: "orderConfirmation",
+      status: "failed",
       orderId: orderIdForError,
       error: error.message,
-    }).catch(logError => {
-      logger.error('Failed to create EmailLog for failed order confirmation', logError);
+    }).catch((logError) => {
+      logger.error(
+        "Failed to create EmailLog for failed order confirmation",
+        logError,
+      );
     });
-    
+
     throw error;
   }
 };
@@ -471,7 +543,10 @@ export const sendPayoutNotification = async (payout, seller, user) => {
     const html = payoutNotificationEmailTemplate(payout, seller);
 
     const mailOptions = {
-      from: process.env.EMAIL_FROM || 'noreply@dgmarq.com',
+      from: {
+        name: process.env.EMAIL_FROM_NAME || "DG Marq",
+        address: process.env.EMAIL_FROM || "noreply@dgmarq.com",
+      },
       to: user.email,
       subject: `Payout Processed - $${payout.netAmount.toFixed(2)}`,
       html,
@@ -482,46 +557,64 @@ export const sendPayoutNotification = async (payout, seller, user) => {
     await EmailLog.create({
       recipient: user.email,
       subject: mailOptions.subject,
-      template: 'payoutNotification',
-      status: 'sent',
+      template: "payoutNotification",
+      status: "sent",
       sentAt: new Date(),
     });
 
     return { success: true };
   } catch (error) {
-    logger.error('Failed to send payout notification', error);
+    logger.error("Failed to send payout notification", error);
     throw error;
   }
 };
 
-export const sendRefundRequestedEmailToSeller = async ({ sellerUser, orderNumber, productName, refundAmount }) => {
+export const sendRefundRequestedEmailToSeller = async ({
+  sellerUser,
+  orderNumber,
+  productName,
+  refundAmount,
+}) => {
   try {
     const transporter = createTransporter();
-    const dashboardUrl = `${process.env.FRONTEND_URL || ''}/seller/return-refunds`;
-    const html = refundRequestedSellerEmailTemplate(orderNumber, productName, refundAmount, dashboardUrl);
+    const dashboardUrl = `${process.env.FRONTEND_URL || ""}/seller/return-refunds`;
+    const html = refundRequestedSellerEmailTemplate(
+      orderNumber,
+      productName,
+      refundAmount,
+      dashboardUrl,
+    );
     const mailOptions = {
-      from: process.env.EMAIL_FROM || 'noreply@dgmarq.com',
+      from: {
+        name: process.env.EMAIL_FROM_NAME || "DG Marq",
+        address: process.env.EMAIL_FROM || "noreply@dgmarq.com",
+      },
       to: sellerUser.email,
       subject: `Refund Requested for Order #${orderNumber}`,
       html,
     };
     await transporter.sendMail(mailOptions);
-    logger.info(`Refund requested email sent to seller ${sellerUser.email} for order #${orderNumber}`);
+    logger.info(
+      `Refund requested email sent to seller ${sellerUser.email} for order #${orderNumber}`,
+    );
     await EmailLog.create({
       recipient: sellerUser.email,
       subject: mailOptions.subject,
-      template: 'refundRequestedSeller',
-      status: 'sent',
+      template: "refundRequestedSeller",
+      status: "sent",
       sentAt: new Date(),
     });
     return { success: true };
   } catch (error) {
-    logger.error('Failed to send refund-requested email to seller', { orderNumber, err: error.message });
+    logger.error("Failed to send refund-requested email to seller", {
+      orderNumber,
+      err: error.message,
+    });
     await EmailLog.create({
-      recipient: sellerUser?.email || 'unknown',
+      recipient: sellerUser?.email || "unknown",
       subject: `Refund Requested for Order #${orderNumber}`,
-      template: 'refundRequestedSeller',
-      status: 'failed',
+      template: "refundRequestedSeller",
+      status: "failed",
       error: error.message,
     });
     throw error;
@@ -536,7 +629,7 @@ export const sendRefundIssuedEmailToSeller = async ({
   refundAmount,
   refundType,
   payoutStatus,
-  refundMethod = 'WALLET',
+  refundMethod = "WALLET",
 }) => {
   try {
     const transporter = createTransporter();
@@ -547,35 +640,108 @@ export const sendRefundIssuedEmailToSeller = async ({
       refundAmount,
       refundType,
       payoutStatus,
-      refundMethod
+      refundMethod,
     );
 
     const mailOptions = {
-      from: process.env.EMAIL_FROM || 'noreply@dgmarq.com',
+      from: {
+        name: process.env.EMAIL_FROM_NAME || "DG Marq",
+        address: process.env.EMAIL_FROM || "noreply@dgmarq.com",
+      },
       to: sellerUser.email,
       subject: `Refund Issued for Order #${orderNumber}`,
       html,
     };
 
     await transporter.sendMail(mailOptions);
-    logger.info(`Refund issued email sent to seller ${sellerUser.email} for order #${orderNumber}`);
+    logger.info(
+      `Refund issued email sent to seller ${sellerUser.email} for order #${orderNumber}`,
+    );
 
     await EmailLog.create({
       recipient: sellerUser.email,
       subject: mailOptions.subject,
-      template: 'refundIssuedSeller',
-      status: 'sent',
+      template: "refundIssuedSeller",
+      status: "sent",
       sentAt: new Date(),
     });
 
     return { success: true };
   } catch (error) {
-    logger.error('Failed to send refund-issued email to seller', { orderNumber, err: error.message });
+    logger.error("Failed to send refund-issued email to seller", {
+      orderNumber,
+      err: error.message,
+    });
     await EmailLog.create({
-      recipient: sellerUser?.email || 'unknown',
+      recipient: sellerUser?.email || "unknown",
       subject: `Refund Issued for Order #${orderNumber}`,
-      template: 'refundIssuedSeller',
-      status: 'failed',
+      template: "refundIssuedSeller",
+      status: "failed",
+      error: error.message,
+    });
+    throw error;
+  }
+};
+
+export const sendSellerInputRequestEmailToSeller = async ({
+  sellerUser,
+  refundId,
+  orderNumber,
+  productName,
+  customerName,
+  adminMessage,
+}) => {
+  try {
+    const transporter = createTransporter();
+    const dashboardUrl = `${process.env.FRONTEND_URL || ""}/seller/return-refunds?refundId=${refundId}`;
+    const html = refundSellerInputRequestEmailTemplate({
+      refundId,
+      orderNumber,
+      productName,
+      customerName,
+      adminMessage,
+      dashboardUrl,
+    });
+
+    const subject = `Admin Requested Your Input on Refund #${refundId}`;
+
+    const mailOptions = {
+      from: {
+        name: process.env.EMAIL_FROM_NAME || "DG Marq",
+        address: process.env.EMAIL_FROM || "noreply@dgmarq.com",
+      },
+      to: sellerUser.email,
+      subject,
+      html,
+    };
+
+    await transporter.sendMail(mailOptions);
+    logger.info("Seller input request email sent to seller", {
+      email: sellerUser.email,
+      refundId,
+      orderNumber,
+    });
+
+    await EmailLog.create({
+      recipient: sellerUser.email,
+      subject,
+      template: "refundSellerInputRequest",
+      status: "sent",
+      sentAt: new Date(),
+    });
+
+    return { success: true };
+  } catch (error) {
+    logger.error("Failed to send seller-input-request email to seller", {
+      refundId,
+      orderNumber,
+      err: error.message,
+    });
+    await EmailLog.create({
+      recipient: sellerUser?.email || "unknown",
+      subject: `Admin Requested Your Input on Refund #${refundId}`,
+      template: "refundSellerInputRequest",
+      status: "failed",
       error: error.message,
     });
     throw error;
@@ -591,16 +757,20 @@ export const sendSellerNewOrderEmail = async ({
 }) => {
   const recipient = sellerUser?.email;
   const orderId = order?._id;
-  const subject = 'New Order Received';
+  const subject = "New Order Received";
 
   if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
     throw new Error(`Invalid order ID for seller email: ${orderId}`);
   }
   if (!recipient) {
-    throw new Error(`Missing seller email for seller ${seller?._id || 'unknown'}`);
+    throw new Error(
+      `Missing seller email for seller ${seller?._id || "unknown"}`,
+    );
   }
   if (!Array.isArray(sellerItems) || sellerItems.length === 0) {
-    throw new Error(`No seller items found for seller ${seller?._id || 'unknown'} in order ${orderId}`);
+    throw new Error(
+      `No seller items found for seller ${seller?._id || "unknown"} in order ${orderId}`,
+    );
   }
 
   const orderObjectId = new mongoose.Types.ObjectId(orderId);
@@ -609,55 +779,65 @@ export const sendSellerNewOrderEmail = async ({
   const existingSuccess = await EmailLog.findOne({
     recipient,
     orderId: orderObjectId,
-    template: 'sellerNewOrder',
-    status: 'sent',
+    template: "sellerNewOrder",
+    status: "sent",
   }).lean();
   if (existingSuccess) {
-    return { success: true, skipped: true, reason: 'already_sent' };
+    return { success: true, skipped: true, reason: "already_sent" };
   }
 
   try {
-    const transporter = createTransporter();
     const normalizedItems = sellerItems.map((item) => ({
-      productName: item.productName || 'Product',
+      productName: item.productName || "Product",
       quantity: Number(item.quantity) || 0,
     }));
 
-    const shippingAddress = order?.shippingAddress
-      || order?.shipping?.address
-      || order?.shippingDetails
-      || order?.deliveryAddress
-      || null;
+    const shippingAddress =
+      order?.shippingAddress ||
+      order?.shipping?.address ||
+      order?.shippingDetails ||
+      order?.deliveryAddress ||
+      null;
 
     const html = sellerNewOrderEmailTemplate({
-      sellerName: seller?.shopName || sellerUser?.name || 'Seller',
+      sellerName: seller?.shopName || sellerUser?.name || "Seller",
       orderId: String(orderId),
-      orderDate: new Date(order.createdAt || Date.now()).toLocaleString('en-US', { timeZone: 'UTC' }) + ' UTC',
-      buyerName: buyerName || 'Guest Buyer',
-      shippingAddress: shippingAddress || 'Not applicable',
-      dashboardUrl: `${process.env.FRONTEND_URL || ''}/seller/orders`,
+      orderDate:
+        new Date(order.createdAt || Date.now()).toLocaleString("en-US", {
+          timeZone: "UTC",
+        }) + " UTC",
+      buyerName: buyerName || "Guest Buyer",
+      shippingAddress: shippingAddress || "Not applicable",
+      dashboardUrl: `${process.env.FRONTEND_URL || ""}/seller/orders`,
       items: normalizedItems,
     });
 
-    const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM || 'noreply@dgmarq.com',
+    await sendAndLogEmail({
       to: recipient,
       subject,
       html,
+      template: "sellerNewOrder",
     });
 
-    await EmailLog.create({
-      recipient,
-      subject,
-      template: 'sellerNewOrder',
-      status: 'sent',
-      orderId: orderObjectId,
-      sentAt: new Date(),
-    });
+    // Ensure orderId is captured on the log for traceability
+    await EmailLog.updateOne(
+      {
+        recipient,
+        subject,
+        template: "sellerNewOrder",
+        status: "sent",
+        orderId: { $exists: false },
+      },
+      {
+        $set: {
+          orderId: orderObjectId,
+        },
+      }
+    );
 
-    return { success: true, messageId: info.messageId };
+    return { success: true };
   } catch (error) {
-    logger.error('Failed to send new-order email to seller', {
+    logger.error("Failed to send new-order email to seller", {
       orderId: String(orderId),
       sellerId: seller?._id ? String(seller._id) : null,
       recipient,
@@ -667,12 +847,15 @@ export const sendSellerNewOrderEmail = async ({
     await EmailLog.create({
       recipient,
       subject,
-      template: 'sellerNewOrder',
-      status: 'failed',
+      template: "sellerNewOrder",
+      status: "failed",
       orderId: orderObjectId,
       error: error.message,
     }).catch((logError) => {
-      logger.error('Failed to create EmailLog for seller new-order email failure', logError);
+      logger.error(
+        "Failed to create EmailLog for seller new-order email failure",
+        logError,
+      );
     });
 
     throw error;
@@ -700,16 +883,20 @@ export const sendSellerSubmissionToAdminEmail = async ({
       to: adminEmail,
       subject: `New Seller Profile Submission - ${storeName}`,
       html,
-      template: 'sellerProfileSubmissionAdmin',
+      template: "sellerProfileSubmissionAdmin",
     });
     return { success: true };
   } catch (error) {
-    logger.error('Failed to send seller submission email to admin', error);
+    logger.error("Failed to send seller submission email to admin", error);
     throw error;
   }
 };
 
-export const sendSellerSubmissionConfirmationEmail = async ({ sellerEmail, sellerName, storeName }) => {
+export const sendSellerSubmissionConfirmationEmail = async ({
+  sellerEmail,
+  sellerName,
+  storeName,
+}) => {
   try {
     const html = sellerProfileSubmissionSellerEmailTemplate({
       sellerName,
@@ -718,39 +905,48 @@ export const sendSellerSubmissionConfirmationEmail = async ({ sellerEmail, selle
 
     await sendAndLogEmail({
       to: sellerEmail,
-      subject: 'Seller profile submitted successfully',
+      subject: "Seller profile submitted successfully",
       html,
-      template: 'sellerProfileSubmissionConfirmation',
+      template: "sellerProfileSubmissionConfirmation",
     });
     return { success: true };
   } catch (error) {
-    logger.error('Failed to send seller submission confirmation email', error);
+    logger.error("Failed to send seller submission confirmation email", error);
     throw error;
   }
 };
 
-export const sendSellerApprovedEmail = async ({ sellerEmail, sellerName, storeName }) => {
+export const sendSellerApprovedEmail = async ({
+  sellerEmail,
+  sellerName,
+  storeName,
+}) => {
   try {
     const html = sellerProfileApprovedEmailTemplate({
       sellerName,
       storeName,
-      nextStepsUrl: `${process.env.FRONTEND_URL || ''}/seller/dashboard`,
+      nextStepsUrl: `${process.env.FRONTEND_URL || ""}/seller/dashboard`,
     });
 
     await sendAndLogEmail({
       to: sellerEmail,
-      subject: 'Your Seller Profile Has Been Approved',
+      subject: "Your Seller Profile Has Been Approved",
       html,
-      template: 'sellerProfileApproved',
+      template: "sellerProfileApproved",
     });
     return { success: true };
   } catch (error) {
-    logger.error('Failed to send seller approved email', error);
+    logger.error("Failed to send seller approved email", error);
     throw error;
   }
 };
 
-export const sendSellerRejectedEmail = async ({ sellerEmail, sellerName, storeName, reason }) => {
+export const sendSellerRejectedEmail = async ({
+  sellerEmail,
+  sellerName,
+  storeName,
+  reason,
+}) => {
   try {
     const html = sellerProfileRejectedEmailTemplate({
       sellerName,
@@ -760,13 +956,13 @@ export const sendSellerRejectedEmail = async ({ sellerEmail, sellerName, storeNa
 
     await sendAndLogEmail({
       to: sellerEmail,
-      subject: 'Your Seller Profile Has Been Rejected',
+      subject: "Your Seller Profile Has Been Rejected",
       html,
-      template: 'sellerProfileRejected',
+      template: "sellerProfileRejected",
     });
     return { success: true };
   } catch (error) {
-    logger.error('Failed to send seller rejected email', error);
+    logger.error("Failed to send seller rejected email", error);
     throw error;
   }
 };
@@ -794,27 +990,30 @@ export const sendSupportTicketCreatedToAdminEmail = async ({
       to: adminEmail,
       subject: `New Support Ticket #${ticketId}`,
       html,
-      template: 'supportTicketAdmin',
+      template: "supportTicketAdmin",
     });
     return { success: true };
   } catch (error) {
-    logger.error('Failed to send support ticket email to admin', error);
+    logger.error("Failed to send support ticket email to admin", error);
     throw error;
   }
 };
 
-export const sendRefundRequestToAdminEmail = async ({ adminEmail, details }) => {
+export const sendRefundRequestToAdminEmail = async ({
+  adminEmail,
+  details,
+}) => {
   try {
     const html = refundRequestAdminEmailTemplate(details);
     await sendAndLogEmail({
       to: adminEmail,
       subject: `New Refund Request #${details.refundRequestId}`,
       html,
-      template: 'refundRequestAdmin',
+      template: "refundRequestAdmin",
     });
     return { success: true };
   } catch (error) {
-    logger.error('Failed to send refund request email to admin', error);
+    logger.error("Failed to send refund request email to admin", error);
     throw error;
   }
 };
@@ -838,13 +1037,15 @@ export const sendRefundDecisionCustomerEmail = async ({
 
     await sendAndLogEmail({
       to: customerEmail,
-      subject: approved ? 'Your Refund Request Was Approved' : 'Your Refund Request Was Rejected',
+      subject: approved
+        ? "Your Refund Request Was Approved"
+        : "Your Refund Request Was Rejected",
       html,
-      template: 'refundDecisionCustomer',
+      template: "refundDecisionCustomer",
     });
     return { success: true };
   } catch (error) {
-    logger.error('Failed to send refund decision email to customer', error);
+    logger.error("Failed to send refund decision email to customer", error);
     throw error;
   }
 };
@@ -868,13 +1069,15 @@ export const sendRefundDecisionSellerEmail = async ({
 
     await sendAndLogEmail({
       to: sellerEmail,
-      subject: approved ? 'A Refund Request Was Approved' : 'A Refund Request Was Rejected',
+      subject: approved
+        ? "A Refund Request Was Approved"
+        : "A Refund Request Was Rejected",
       html,
-      template: 'refundDecisionSeller',
+      template: "refundDecisionSeller",
     });
     return { success: true };
   } catch (error) {
-    logger.error('Failed to send refund decision email to seller', error);
+    logger.error("Failed to send refund decision email to seller", error);
     throw error;
   }
 };
@@ -909,15 +1112,18 @@ export const sendPasswordResetEmail = async (user, resetToken) => {
     `;
 
     await transporter.sendMail({
-      from: process.env.EMAIL_FROM || 'noreply@dgmarq.com',
+      from: {
+        name: process.env.EMAIL_FROM_NAME || "DG Marq",
+        address: process.env.EMAIL_FROM || "noreply@dgmarq.com",
+      },
       to: user.email,
-      subject: 'Password Reset Request',
+      subject: "Password Reset Request",
       html,
     });
 
     return { success: true };
   } catch (error) {
-    logger.error('Failed to send password reset email', error);
+    logger.error("Failed to send password reset email", error);
     throw error;
   }
 };
@@ -926,7 +1132,7 @@ export const sendEmailVerificationOTP = async (user, otp) => {
   try {
     const transporter = createTransporter();
     const expiryMinutes = 10;
-    
+
     const html = `
       <!DOCTYPE html>
       <html>
@@ -975,33 +1181,35 @@ export const sendEmailVerificationOTP = async (user, otp) => {
     `;
 
     await transporter.sendMail({
-      from: process.env.EMAIL_FROM || 'noreply@dgmarq.com',
+      from: {
+        name: process.env.EMAIL_FROM_NAME || "DG Marq",
+        address: process.env.EMAIL_FROM || "noreply@dgmarq.com",
+      },
       to: user.email,
-      subject: 'Email Verification OTP - DG Marq',
+      subject: "Email Verification OTP - DG Marq",
       html,
     });
 
     await EmailLog.create({
       recipient: user.email,
-      subject: 'Email Verification OTP - DG Marq',
-      template: 'emailVerificationOTP',
-      status: 'sent',
+      subject: "Email Verification OTP - DG Marq",
+      template: "emailVerificationOTP",
+      status: "sent",
       sentAt: new Date(),
     });
 
     return { success: true };
   } catch (error) {
-    logger.error('Failed to send email verification OTP', error);
-    
+    logger.error("Failed to send email verification OTP", error);
+
     await EmailLog.create({
       recipient: user.email,
-      subject: 'Email Verification OTP - DG Marq',
-      template: 'emailVerificationOTP',
-      status: 'failed',
+      subject: "Email Verification OTP - DG Marq",
+      template: "emailVerificationOTP",
+      status: "failed",
       error: error.message,
     });
 
     throw error;
   }
 };
-

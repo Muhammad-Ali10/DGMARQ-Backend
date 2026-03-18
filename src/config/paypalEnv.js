@@ -16,8 +16,6 @@ let _envLogged = false;
 export function getPayPalBaseUrl() {
   const paypalEnv = (process.env.PAYPAL_ENV || 'sandbox').toString().trim().toLowerCase();
   const explicitBase = (process.env.PAYPAL_API_BASE || '').toString().trim().replace(/\/$/, '');
-
-  console.log('paypalEnv', paypalEnv);
   const isProduction = paypalEnv === 'production';
   const expectedBase = isProduction ? LIVE_API : SANDBOX_API;
 
@@ -56,8 +54,6 @@ export function validatePayPalEnvironment() {
   const clientId = (process.env.PAYPAL_CLIENT_ID || '').toString().trim();
   const clientSecret = (process.env.PAYPAL_CLIENT_SECRET || '').toString().trim();
   const paypalEnv = (process.env.PAYPAL_ENV || 'sandbox').toString().trim().toLowerCase();
-
-  console.log('paypalEnv', clientId);
   if (!clientId || clientId === 'your_paypal_client_id') {
     throw new Error('PAYPAL_CLIENT_ID is missing or not configured.');
   }
