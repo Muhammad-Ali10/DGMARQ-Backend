@@ -631,6 +631,7 @@ const getSellerProducts = asyncHandler(async (req, res) => {
         description: 1,
         price: 1,
         discount: 1,
+        productType: 1,
         images: 1,
         averageRating: 1,
         reviewCount: 1,

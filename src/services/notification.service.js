@@ -2,6 +2,14 @@ import { Notification } from '../models/notification.model.js';
 import mongoose from 'mongoose';
 import { logger } from '../utils/logger.js';
 
+const getOrderDisplayId = (order) => {
+  if (!order) return 'UNKNOWN';
+  const orderNumber = typeof order.orderNumber === 'string' ? order.orderNumber.trim() : '';
+  if (orderNumber) return orderNumber;
+  const rawId = order?._id?.toString?.() || '';
+  return rawId ? rawId.slice(-8).toUpperCase() : 'UNKNOWN';
+};
+
 export const createNotification = async (userId, type, title, message, data = null, actionUrl = null, priority = 'medium') => {
   try {
     const notification = await Notification.create({
@@ -120,7 +128,7 @@ export const notifyOrderCreated = async (userId, order) => {
     userId,
     'order',
     'Order Confirmed',
-    `Your order #${order._id} has been confirmed. License keys will be sent to your email.`,
+    `Your order #${getOrderDisplayId(order)} has been confirmed. License keys will be sent to your email.`,
     { orderId: order._id },
     `/orders/${order._id}`,
     'high'

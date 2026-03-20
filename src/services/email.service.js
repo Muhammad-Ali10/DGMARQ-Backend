@@ -21,6 +21,7 @@ import { EmailLog } from "../models/emailLog.model.js";
 import { decryptKey } from "../utils/encryption.js";
 import { LicenseKey } from "../models/licensekey.model.js";
 import { logger } from "../utils/logger.js";
+import { getOrderDisplayId } from "../utils/orderDisplay.js";
 
 const createTransporter = () => {
   if (process.env.SMTP_HOST) {
@@ -198,9 +199,10 @@ export const sendLicenseKeyEmail = async (order, user) => {
     const hasAccountProducts = order.items.some(
       (item) => item.productId?.productType === "ACCOUNT_BASED",
     );
+    const orderDisplay = getOrderDisplayId(order);
     const subject = hasAccountProducts
-      ? `Your Order Details - Order #${order._id}`
-      : `Your License Keys - Order #${order._id}`;
+      ? `Your Order Details - Order #${orderDisplay}`
+      : `Your License Keys - Order #${orderDisplay}`;
 
     const mailOptions = {
       from: {
@@ -274,7 +276,7 @@ export const sendLicenseKeyEmail = async (order, user) => {
 
     await EmailLog.create({
       recipient: user?.email || "unknown",
-      subject: `Your License Keys - Order #${order?._id || "unknown"}`,
+      subject: `Your License Keys - Order #${getOrderDisplayId(order)}`,
       template: "licenseKey",
       status: "failed",
       orderId: orderIdForError,
@@ -380,9 +382,10 @@ export const sendLicenseKeyEmailToGuest = async (order, guestEmail) => {
     const hasAccountProducts = order.items.some(
       (item) => item.productId?.productType === "ACCOUNT_BASED",
     );
+    const guestOrderDisplay = getOrderDisplayId(order);
     const subject = hasAccountProducts
-      ? `Your Order Details - Order #${order._id}`
-      : `Your License Keys - Order #${order._id}`;
+      ? `Your Order Details - Order #${guestOrderDisplay}`
+      : `Your License Keys - Order #${guestOrderDisplay}`;
     const mailOptions = {
       from: {
         name: process.env.EMAIL_FROM_NAME || "DG Marq",
@@ -443,7 +446,7 @@ export const sendLicenseKeyEmailToGuest = async (order, guestEmail) => {
         : null;
     await EmailLog.create({
       recipient: guestEmail || "unknown",
-      subject: `Your License Keys - Order #${order?._id || "unknown"}`,
+      subject: `Your License Keys - Order #${getOrderDisplayId(order)}`,
       template: "licenseKey",
       status: "failed",
       orderId: orderIdForError,
@@ -488,7 +491,7 @@ export const sendOrderConfirmation = async (order, user) => {
         address: process.env.EMAIL_FROM || "noreply@dgmarq.com",
       },
       to: user.email,
-      subject: `Order Confirmation - Order #${order._id}`,
+      subject: `Order Confirmation - Order #${getOrderDisplayId(order)}`,
       html,
     };
 
@@ -521,7 +524,7 @@ export const sendOrderConfirmation = async (order, user) => {
 
     await EmailLog.create({
       recipient: user?.email || "unknown",
-      subject: `Order Confirmation - Order #${order?._id || "unknown"}`,
+      subject: `Order Confirmation - Order #${getOrderDisplayId(order)}`,
       template: "orderConfirmation",
       status: "failed",
       orderId: orderIdForError,
@@ -801,7 +804,7 @@ export const sendSellerNewOrderEmail = async ({
 
     const html = sellerNewOrderEmailTemplate({
       sellerName: seller?.shopName || sellerUser?.name || "Seller",
-      orderId: String(orderId),
+      orderId: getOrderDisplayId(order),
       orderDate:
         new Date(order.createdAt || Date.now()).toLocaleString("en-US", {
           timeZone: "UTC",

@@ -19,6 +19,7 @@ import {
   getRefundMessages,
   requestSellerInput,
   validateGuestOrderForRefund,
+  getRefundKeyDetails,
 } from "../controller/returnrefund.controller.js";
 import { verifyJWT } from "../middlerwares/authmiddlerware.js";
 import { authorizeRoles } from "../middlerwares/authmiddlerware.js";
@@ -46,6 +47,7 @@ router.delete("/:refundId", verifyJWT, cancelRefund);
 
 router.get("/:refundId/messages", verifyJWT, getRefundMessages);
 router.post("/:refundId/messages", verifyJWT, messageLimiter, uploadRefundChatImages, addRefundMessage);
+router.get("/:refundId/key-details", verifyJWT, authorizeRoles("seller", "admin"), getRefundKeyDetails);
 
 router.get("/seller/list", verifyJWT, authorizeRoles("seller"), getSellerRefunds);
 router.patch("/seller/:refundId/approve", verifyJWT, authorizeRoles("seller"), sellerApproveRefund);

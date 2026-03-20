@@ -9,6 +9,7 @@ import {
   sendSellerInputRequestEmailToSeller,
 } from "./email.service.js";
 import { logger } from "../utils/logger.js";
+import { getOrderDisplayId } from "../utils/orderDisplay.js";
 
 /**
  * Purpose: Notify seller when a customer has requested a refund (request created; admin will review).
@@ -42,7 +43,7 @@ export const notifySellerOfRefundRequested = async ({ order, refund }) => {
       if (product?.name) productName = product.name;
     }
 
-    const orderDisplay = order.orderNumber || order._id?.toString() || orderId.toString();
+    const orderDisplay = getOrderDisplayId(order);
     const refundAmount = refund.refundAmount ?? 0;
     const message = `A customer has requested a refund of $${Number(refundAmount).toFixed(2)} for Order #${orderDisplay}. Admin will review.`;
 
@@ -131,7 +132,7 @@ export const notifySellerOfRefund = async ({ order, refund, refundType, refundAm
       if (product?.name) productName = product.name;
     }
 
-    const orderDisplay = order.orderNumber || order._id?.toString() || orderId.toString();
+    const orderDisplay = getOrderDisplayId(order);
     const message = `Refund Issued: $${Number(refundAmount).toFixed(2)} has been refunded for Order #${orderDisplay}.`;
 
     const actionUrl = `/seller/orders/${orderId}`;
@@ -227,7 +228,7 @@ export const notifySellerOfSellerInputRequest = async ({ refund, note }) => {
 
     const sellerUserId = seller.userId;
     const productName = product?.name || "Product";
-    const orderDisplay = order?.orderNumber || order?._id?.toString() || orderId.toString();
+    const orderDisplay = getOrderDisplayId(order || { _id: orderId });
     const customerName = customer?.name || "Customer";
     const adminMessage = typeof note === "string" && note.trim() ? note.trim() : null;
 

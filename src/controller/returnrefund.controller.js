@@ -6,6 +6,7 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { logger } from "../utils/logger.js";
 import { ReturnRefund } from "../models/returnrefund.model.js";
 import { Order } from "../models/order.model.js";
+import { Checkout } from "../models/checkout.model.js";
 import { LicenseKey } from "../models/licensekey.model.js";
 import { Product } from "../models/product.model.js";
 import { Payout } from "../models/payout.model.js";
@@ -58,6 +59,33 @@ const maskLicenseKeyForDisplay = (keyDoc) => {
   }
 
   const asString = typeof decrypted === "string" ? decrypted : JSON.stringify(decrypted);
+
+  // Account-based products can store credential objects.
+  // For refund selection, show only username + last 4 of password.
+  try {
+    const parsed = typeof decrypted === "string" ? JSON.parse(decrypted) : decrypted;
+    if (parsed && typeof parsed === "object") {
+      const username =
+        (typeof parsed.usernameId === "string" && parsed.usernameId.trim()) ||
+        (typeof parsed.username === "string" && parsed.username.trim()) ||
+        (typeof parsed.email === "string" && parsed.email.trim()) ||
+        "N/A";
+      const passwordRaw =
+        (typeof parsed.usernamePassword === "string" && parsed.usernamePassword.trim()) ||
+        (typeof parsed.password === "string" && parsed.password.trim()) ||
+        (typeof parsed.emailPassword === "string" && parsed.emailPassword.trim()) ||
+        "";
+
+      if (passwordRaw || username !== "N/A") {
+        const compactPassword = passwordRaw.replace(/\s+/g, "");
+        const lastFourPassword = compactPassword.slice(-4) || "****";
+        return `${username} | ****${lastFourPassword}`;
+      }
+    }
+  } catch {
+    // Not a JSON account payload; continue using generic key masking.
+  }
+
   const compact = asString.replace(/\s+/g, "");
   const lastFour = compact.slice(-4) || "****";
   return `XXXX-${lastFour}`;
@@ -254,16 +282,39 @@ const createReturnRefund = asyncHandler(async (req, res) => {
   const requestedRefundAmount = keyCount > 0 ? Math.round(unitPrice * keyCount * 100) / 100 : (orderItem.lineTotal ?? 0);
 
   // Enforce refund method restrictions based on original payment method.
-  const paymentMethod = (order.paymentMethod || "").toString();
-  const paymentMethodLower = paymentMethod.toLowerCase();
-  const includesWallet = paymentMethodLower.includes("wallet");
+  // Fetch wallet/card amounts from order or checkout (for older orders)
+  let walletAmount = order.walletAmount ?? 0;
+  let cardAmount = order.cardAmount ?? 0;
+  
+  // Fallback to checkout for older orders that don't have these fields
+  if (walletAmount === 0 && cardAmount === 0 && order.checkoutId) {
+    const checkout = await Checkout.findById(order.checkoutId).select("walletAmount cardAmount").lean();
+    if (checkout) {
+      walletAmount = checkout.walletAmount ?? 0;
+      cardAmount = checkout.cardAmount ?? 0;
+    }
+  }
+  
+  // For PayPal payments, cardAmount represents the PayPal amount
+  const paypalAmount = (order.paymentMethod === "PayPal") ? cardAmount : 0;
+  const cardOrPaypalAmount = cardAmount + paypalAmount - (order.paymentMethod === "PayPal" ? cardAmount : 0); // Avoid double-counting
+  const effectiveCardOrPaypalAmount = cardAmount; // cardAmount includes PayPal payments in our model
 
+  // Determine allowed refund methods based on payment breakdown:
+  // - Wallet only purchase -> refund to wallet only
+  // - Wallet + Card/PayPal -> refund to wallet only
+  // - Card/PayPal only -> allow wallet OR original method
   let effectiveRefundMethod = requestedRefundMethod;
-  if (includesWallet) {
+  const walletWasUsed = walletAmount > 0;
+  
+  if (walletWasUsed) {
+    // Any order that used wallet (even partially) must refund to wallet only
     if (effectiveRefundMethod !== "WALLET") {
       logger.warn("[createReturnRefund] Forcing wallet refund due to wallet-based payment", {
         orderId: order._id?.toString(),
-        paymentMethod,
+        paymentMethod: order.paymentMethod,
+        walletAmount,
+        cardAmount,
         requestedRefundMethod,
       });
     }
@@ -560,21 +611,34 @@ const updateRefundStatus = asyncHandler(async (req, res) => {
     refund.adminNotes = adminNotes || "Refund rejected by admin (final decision)";
     pushRefundHistory(refund, "admin", "ADMIN_REJECTED", prev, "ADMIN_REJECTED", rejectionReason);
     await refund.save();
-    await refund.populate("userId", "name email").populate("orderId", "totalAmount createdAt orderStatus").populate("productId", "name images price productType").populate("sellerId", "shopName");
-    const sellerForNotify = await Seller.findById(refund.sellerId?._id || refund.sellerId).select("_id shopName userId").lean();
+
+    const populatedRefundForAdminReject = await ReturnRefund.findById(refundId)
+      .populate("userId", "name email")
+      .populate("orderId", "totalAmount createdAt orderStatus")
+      .populate("productId", "name images price productType")
+      .populate("sellerId", "shopName");
+
+    const sellerForNotify = await Seller.findById(populatedRefundForAdminReject.sellerId?._id || populatedRefundForAdminReject.sellerId)
+      .select("_id shopName userId")
+      .lean();
     const sellerUserForNotify = sellerForNotify?.userId
       ? await User.findById(sellerForNotify.userId).select("_id name email").lean()
       : null;
     handleRefundDecision({
-      refund,
-      customer: refund.userId,
+      refund: populatedRefundForAdminReject,
+      customer: populatedRefundForAdminReject.userId,
       seller: sellerForNotify,
       sellerUser: sellerUserForNotify,
       approved: false,
       rejectionReason,
     }).catch(() => null);
-    await auditLog(req.user._id, "REFUND_ADMIN_REJECTED", `Refund ${refundId} rejected by admin`, { refundId, rejectionReason });
-    return res.status(200).json(new ApiResponse(200, refund, "Refund request rejected (final decision)."));
+    await auditLog(req.user._id, "REFUND_ADMIN_REJECTED", `Refund ${refundId} rejected by admin`, {
+      refundId,
+      rejectionReason,
+    });
+    return res
+      .status(200)
+      .json(new ApiResponse(200, populatedRefundForAdminReject, "Refund request rejected (final decision)."));
   }
 
   if (status === "approved") {
@@ -621,17 +685,21 @@ const updateRefundStatus = asyncHandler(async (req, res) => {
     refund.adminNotes = adminNotes || "Refund request rejected";
     await refund.save();
 
-    await refund.populate("userId", "name email");
-    await refund.populate("orderId", "totalAmount createdAt orderStatus");
-    await refund.populate("productId", "name images price productType");
-    await refund.populate("sellerId", "shopName");
-    const sellerForNotify = await Seller.findById(refund.sellerId?._id || refund.sellerId).select("_id shopName userId").lean();
+    const populatedRefundForLegacyReject = await ReturnRefund.findById(refundId)
+      .populate("userId", "name email")
+      .populate("orderId", "totalAmount createdAt orderStatus")
+      .populate("productId", "name images price productType")
+      .populate("sellerId", "shopName");
+
+    const sellerForNotify = await Seller.findById(populatedRefundForLegacyReject.sellerId?._id || populatedRefundForLegacyReject.sellerId)
+      .select("_id shopName userId")
+      .lean();
     const sellerUserForNotify = sellerForNotify?.userId
       ? await User.findById(sellerForNotify.userId).select("_id name email").lean()
       : null;
     handleRefundDecision({
-      refund,
-      customer: refund.userId,
+      refund: populatedRefundForLegacyReject,
+      customer: populatedRefundForLegacyReject.userId,
       seller: sellerForNotify,
       sellerUser: sellerUserForNotify,
       approved: false,
@@ -644,9 +712,9 @@ const updateRefundStatus = asyncHandler(async (req, res) => {
       adminId: req.user._id,
     });
 
-    return res.status(200).json(
-      new ApiResponse(200, refund, "Refund request rejected successfully")
-    );
+    return res
+      .status(200)
+      .json(new ApiResponse(200, populatedRefundForLegacyReject, "Refund request rejected successfully"));
   } else {
     const updatedRefund = await ReturnRefund.findByIdAndUpdate(
       refundId,
@@ -1220,8 +1288,9 @@ const getCompletedOrdersForRefund = asyncHandler(async (req, res) => {
     paymentStatus: "paid",
     orderStatus: { $in: ["completed", "PARTIALLY_REFUNDED", "partially_completed"] },
   })
-    .select("_id createdAt totalAmount items orderCompletedAt updatedAt orderNumber")
+    .select("_id createdAt totalAmount items orderCompletedAt updatedAt orderNumber paymentMethod walletAmount cardAmount checkoutId")
     .populate("items.productId", "name images productType")
+    .populate("checkoutId", "walletAmount cardAmount")
     .sort({ createdAt: -1 })
     .limit(100);
 
@@ -1230,38 +1299,49 @@ const getCompletedOrdersForRefund = asyncHandler(async (req, res) => {
     return isWithinRefundWindow(order);
   });
 
-  const formattedOrders = eligibleOrders.map(order => ({
-    _id: order._id.toString(),
-    orderId: order._id.toString(),
-    orderNumber: order.orderNumber || null,
-    orderDate: order.createdAt,
-    orderTotalAmount: order.totalAmount,
-    items: order.items
-      .filter(item => !item.refunded)
-      .map(item => {
-        let productIdStr = '';
-        if (item.productId) {
-          if (item.productId._id) {
-            productIdStr = String(item.productId._id);
-          } else if (typeof item.productId === 'object' && item.productId.toString) {
-            productIdStr = String(item.productId);
-          } else {
-            productIdStr = String(item.productId);
+  const formattedOrders = eligibleOrders.map(order => {
+    // Prefer order-level wallet/card amounts, fallback to checkout if not present (for older orders)
+    const walletAmount = order.walletAmount ?? order.checkoutId?.walletAmount ?? 0;
+    const cardAmount = order.cardAmount ?? order.checkoutId?.cardAmount ?? 0;
+    
+    return {
+      _id: order._id.toString(),
+      orderId: order._id.toString(),
+      orderNumber: order.orderNumber || null,
+      orderDate: order.createdAt,
+      orderTotalAmount: order.totalAmount,
+      paymentMethod: order.paymentMethod || null,
+      walletAmount,
+      cardAmount,
+      // For PayPal payments, cardAmount represents the PayPal amount
+      paypalAmount: order.paymentMethod === 'PayPal' ? cardAmount : 0,
+      items: order.items
+        .filter(item => !item.refunded)
+        .map(item => {
+          let productIdStr = '';
+          if (item.productId) {
+            if (item.productId._id) {
+              productIdStr = String(item.productId._id);
+            } else if (typeof item.productId === 'object' && item.productId.toString) {
+              productIdStr = String(item.productId);
+            } else {
+              productIdStr = String(item.productId);
+            }
           }
-        }
-        
-        return {
-          productId: productIdStr,
-          productName: item.productId?.name || 'Product',
-          productImage: item.productId?.images?.[0] || null,
-          productType: item.productId?.productType || 'LICENSE_KEY',
-          unitPrice: item.unitPrice,
-          qty: item.qty,
-          lineTotal: item.lineTotal,
-          assignedKeyIds: (item.assignedKeyIds || []).map(id => id?.toString?.() || id),
-        };
-      }),
-  }));
+          
+          return {
+            productId: productIdStr,
+            productName: item.productId?.name || 'Product',
+            productImage: item.productId?.images?.[0] || null,
+            productType: item.productId?.productType || 'LICENSE_KEY',
+            unitPrice: item.unitPrice,
+            qty: item.qty,
+            lineTotal: item.lineTotal,
+            assignedKeyIds: (item.assignedKeyIds || []).map(id => id?.toString?.() || id),
+          };
+        }),
+    };
+  });
 
   return res.status(200).json(
     new ApiResponse(200, { orders: formattedOrders }, "Completed orders retrieved successfully")
@@ -1400,8 +1480,11 @@ const validateGuestOrderForRefund = asyncHandler(async (req, res) => {
     paymentStatus: "paid",
     orderStatus: { $in: ["completed", "PARTIALLY_REFUNDED", "partially_completed"] },
   };
-  const selectFields = "_id orderNumber createdAt totalAmount items orderCompletedAt updatedAt guestEmail paymentStatus orderStatus";
-  const populateOpts = { path: "items.productId", select: "name images productType" };
+  const selectFields = "_id orderNumber createdAt totalAmount items orderCompletedAt updatedAt guestEmail paymentStatus orderStatus paymentMethod walletAmount cardAmount checkoutId";
+  const populateOpts = [
+    { path: "items.productId", select: "name images productType" },
+    { path: "checkoutId", select: "walletAmount cardAmount" },
+  ];
 
   let order = null;
 
@@ -1472,6 +1555,11 @@ const validateGuestOrderForRefund = asyncHandler(async (req, res) => {
     });
   }
 
+  // Get wallet/card amounts for refund method restrictions
+  const walletAmount = order.walletAmount ?? order.checkoutId?.walletAmount ?? 0;
+  const cardAmount = order.cardAmount ?? order.checkoutId?.cardAmount ?? 0;
+  const paypalAmount = order.paymentMethod === 'PayPal' ? cardAmount : 0;
+
   if (itemsWithKeys.length === 0) {
     return res.status(200).json(
       new ApiResponse(
@@ -1480,6 +1568,10 @@ const validateGuestOrderForRefund = asyncHandler(async (req, res) => {
           orderId: order._id.toString(),
           orderNumber: order.orderNumber,
           purchaseEmail: order.guestEmail,
+          paymentMethod: order.paymentMethod || null,
+          walletAmount,
+          cardAmount,
+          paypalAmount,
           items: [],
         },
         "No eligible keys available for refund on this order"
@@ -1494,6 +1586,10 @@ const validateGuestOrderForRefund = asyncHandler(async (req, res) => {
         orderId: order._id.toString(),
         orderNumber: order.orderNumber,
         purchaseEmail: order.guestEmail,
+        paymentMethod: order.paymentMethod || null,
+        walletAmount,
+        cardAmount,
+        paypalAmount,
         items: itemsWithKeys,
       },
       "Guest order verified. Select keys for refund."
@@ -1777,6 +1873,89 @@ const markManualRefund = asyncHandler(async (req, res) => {
   );
 });
 
+/**
+ * Get the actual license key or account details for a refund request.
+ * Only accessible by admin or the seller of the product.
+ */
+const getRefundKeyDetails = asyncHandler(async (req, res) => {
+  const { refundId } = req.params;
+  const userId = req.user._id;
+
+  if (!mongoose.Types.ObjectId.isValid(refundId)) {
+    throw new ApiError(400, "Invalid refund ID");
+  }
+
+  const refund = await ReturnRefund.findById(refundId)
+    .populate("productId", "name productType")
+    .populate("sellerId", "_id");
+
+  if (!refund) {
+    throw new ApiError(404, "Refund request not found");
+  }
+
+  const isAdmin = req.user.roles?.includes("admin");
+  const seller = await Seller.findOne({ userId }).select("_id");
+  const refundSellerId = refund.sellerId?._id || refund.sellerId;
+  const isSeller = seller && refundSellerId && refundSellerId.toString() === seller._id.toString();
+
+  if (!isAdmin && !isSeller) {
+    throw new ApiError(403, "Only admin or the product seller can view key details");
+  }
+
+  const licenseKeyIds = refund.licenseKeyIds || [];
+  if (licenseKeyIds.length === 0) {
+    return res.status(200).json(
+      new ApiResponse(200, { keys: [], productType: refund.productId?.productType }, "No keys associated with this refund")
+    );
+  }
+
+  const licenseKeyDoc = await LicenseKey.findOne({
+    productId: refund.productId._id,
+  }).select("keys");
+
+  if (!licenseKeyDoc) {
+    throw new ApiError(404, "License key document not found");
+  }
+
+  const keyDetails = [];
+  for (const keyId of licenseKeyIds) {
+    const keyItem = licenseKeyDoc.keys.id(keyId);
+    if (keyItem) {
+      let decryptedKey = "";
+      try {
+        decryptedKey = decryptKey(keyItem.keyData);
+      } catch {
+        decryptedKey = "[Decryption failed]";
+      }
+      keyDetails.push({
+        keyId: keyItem._id.toString(),
+        keyData: decryptedKey,
+        keyType: keyItem.keyType,
+        isUsed: keyItem.isUsed,
+        isRefunded: keyItem.isRefunded,
+        refundedAt: keyItem.refundedAt,
+        assignedAt: keyItem.assignedAt,
+      });
+    }
+  }
+
+  await auditLog(userId, "REFUND_KEY_DETAILS_VIEWED", `${isAdmin ? "Admin" : "Seller"} viewed key details for refund ${refundId}`, {
+    refundId,
+    viewedBy: userId,
+    role: isAdmin ? "admin" : "seller",
+    keyCount: keyDetails.length,
+    timestamp: new Date(),
+  });
+
+  return res.status(200).json(
+    new ApiResponse(200, {
+      keys: keyDetails,
+      productType: refund.productId?.productType,
+      productName: refund.productId?.name,
+    }, "Key details retrieved successfully")
+  );
+});
+
 export {
   createReturnRefund,
   getUserRefunds,
@@ -1797,4 +1976,5 @@ export {
   getRefundMessages,
   requestSellerInput,
   validateGuestOrderForRefund,
+  getRefundKeyDetails,
 };

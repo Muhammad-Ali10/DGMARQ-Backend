@@ -1,3 +1,5 @@
+import { getOrderDisplayId } from "./orderDisplay.js";
+
 export const licenseKeyEmailTemplate = (order, keys, user, keyToItemMap = null) => {
   let keyIndex = 0;
   const keysList = [];
@@ -39,8 +41,10 @@ export const licenseKeyEmailTemplate = (order, keys, user, keyToItemMap = null) 
             <p style="margin: 5px 0; font-size: 14px; color: #666;">Account Credentials:</p>
             <div style="padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 3px;">
               ${accountDetails.email ? `<p style="margin: 5px 0;"><strong>Email:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px;">${accountDetails.email}</code></p>` : ''}
-              ${accountDetails.username ? `<p style="margin: 5px 0;"><strong>Username:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px;">${accountDetails.username}</code></p>` : ''}
-              ${accountDetails.password ? `<p style="margin: 5px 0;"><strong>Password:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px; font-weight: bold; color: #2c3e50;">${accountDetails.password}</code></p>` : ''}
+              ${accountDetails.usernameId ? `<p style="margin: 5px 0;"><strong>Username ID:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px;">${accountDetails.usernameId}</code></p>` : ''}
+              ${!accountDetails.usernameId && accountDetails.username ? `<p style="margin: 5px 0;"><strong>Username ID:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px;">${accountDetails.username}</code></p>` : ''}
+              ${accountDetails.usernamePassword ? `<p style="margin: 5px 0;"><strong>Username Password:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px; font-weight: bold; color: #2c3e50;">${accountDetails.usernamePassword}</code></p>` : ''}
+              ${!accountDetails.usernamePassword && accountDetails.password ? `<p style="margin: 5px 0;"><strong>Username Password:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px; font-weight: bold; color: #2c3e50;">${accountDetails.password}</code></p>` : ''}
               ${accountDetails.emailPassword ? `<p style="margin: 5px 0;"><strong>Email Password:</strong> <code style="padding: 4px 8px; background: #f8f9fa; border-radius: 3px; font-size: 14px; font-weight: bold; color: #2c3e50;">${accountDetails.emailPassword}</code></p>` : ''}
             </div>
           ` : `
@@ -80,7 +84,7 @@ export const licenseKeyEmailTemplate = (order, keys, user, keyToItemMap = null) 
           <p>Hello ${user.name},</p>
           <p>Thank you for your purchase! Your order has been completed.</p>
           <p style="margin: 10px 0; padding: 10px; background: #e8f4fd; border: 1px solid #bee5eb; border-radius: 4px;">
-            <strong>Order ID:</strong> <code style="padding: 2px 6px; background: #fff; border-radius: 3px; font-size: 14px;">${order._id}</code>
+            <strong>Order ID:</strong> <code style="padding: 2px 6px; background: #fff; border-radius: 3px; font-size: 14px;">${getOrderDisplayId(order)}</code>
           </p>
           <p style="font-size: 12px; color: #666;">Save this Order ID — you will need it if you request a refund.</p>
           <p>Here are your order details:</p>
@@ -150,7 +154,7 @@ export const orderConfirmationEmailTemplate = (order, user) => {
           <p>Hello ${user.name},</p>
           <p>Thank you for your order!</p>
           <p style="margin: 10px 0; padding: 10px; background: #e8f4fd; border: 1px solid #bee5eb; border-radius: 4px;">
-            <strong>Order ID:</strong> <code style="padding: 2px 6px; background: #fff; border-radius: 3px; font-size: 14px;">${order._id}</code>
+            <strong>Order ID:</strong> <code style="padding: 2px 6px; background: #fff; border-radius: 3px; font-size: 14px;">${getOrderDisplayId(order)}</code>
           </p>
           <p style="font-size: 12px; color: #666;">Save this Order ID — you will need it if you request a refund.</p>
           <table>

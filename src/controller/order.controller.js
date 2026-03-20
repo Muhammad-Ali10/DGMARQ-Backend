@@ -264,6 +264,8 @@ const createWalletOrder = async (checkoutId, userId, req) => {
         payoutAmount: finalRevenue.sellerEarning,
         couponId: checkout.couponId,
         paymentMethod: 'Wallet',
+        walletAmount: checkout.walletAmount || checkout.grandTotal || checkout.totalAmount || 0,
+        cardAmount: 0,
         paymentStatus: 'paid',
         paypalOrderId: null,
         paypalCaptureId: null,
@@ -860,6 +862,8 @@ const createOrder = asyncHandler(async (req, res) => {
       payoutAmount: finalRevenue.sellerEarning,
       couponId: checkout.couponId,
       paymentMethod: checkout.paymentMethod || (checkout.walletAmount > 0 && checkout.cardAmount === 0 ? 'Wallet' : 'PayPal'),
+      walletAmount: checkout.walletAmount || 0,
+      cardAmount: checkout.cardAmount || 0,
       paymentStatus: 'paid',
       paypalOrderId: paypalOrderId || null,
       paypalCaptureId: capture?.captureId || null,
@@ -1453,7 +1457,7 @@ const getSellerOrders = asyncHandler(async (req, res) => {
 
   const sellerObjectId = new mongoose.Types.ObjectId(seller._id);
   const match = {
-    paymentStatus: "paid",
+    paymentStatus: { $in: ["paid", "refunded"] },
     items: {
       $elemMatch: {
         sellerId: sellerObjectId,
@@ -1543,19 +1547,23 @@ const getSellerOrders = asyncHandler(async (req, res) => {
       }
     },
   ]);
+
+  const pageNum = parseInt(page);
+  const limitNum = parseInt(limit);
   const total = orders.length;
-  const startIndex = (parseInt(page) - 1) * parseInt(limit);
-  const endIndex = parseInt(page) * parseInt(limit);
+  const totalPages = Math.ceil(total / limitNum);
+  const startIndex = (pageNum - 1) * limitNum;
+  const endIndex = pageNum * limitNum;
   const paginatedOrders = orders.slice(startIndex, endIndex);
 
   return res.status(200).json(
     new ApiResponse(200, {
       orders: paginatedOrders,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: orders.length,
-        pages: Math.ceil(orders.length / limit),
+        page: pageNum,
+        limit: limitNum,
+        total: total,
+        pages: totalPages,
       },
     }, 'Seller orders retrieved successfully')
   );

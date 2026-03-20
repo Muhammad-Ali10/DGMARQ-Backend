@@ -69,7 +69,7 @@ const createTrendingOffer = asyncHandler(async (req, res) => {
   });
 
   const populated = await TrendingOffer.findById(offer._id)
-    .populate("products", "name price images slug");
+    .populate("products", "name price images slug platform region type device theme genre mode");
 
   return res.status(201).json(
     new ApiResponse(201, populated, "Trending offer created successfully")
@@ -119,8 +119,9 @@ const getOfferByProduct = asyncHandler(async (req, res) => {
   }
 
   const populated = await TrendingOffer.findById(offer._id)
-    .populate("products", "name price images slug");
+    .populate("products", "name price images slug platform region type device theme genre mode");
 
+    console.log(populated)
   return res.status(200).json(
     new ApiResponse(200, populated, "Trending offer retrieved successfully")
   );

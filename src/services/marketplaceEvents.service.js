@@ -182,7 +182,7 @@ const formatOrderIdForDisplay = (order) => {
   if (!order) return "N/A";
   if (order.orderNumber) return `#${order.orderNumber}`;
   const id = order._id?.toString?.();
-  return id || "N/A";
+  return id ? `#${id.slice(-8).toUpperCase()}` : "N/A";
 };
 
 /** Formatted refund ID for display (dashboard/email): last 8 chars of _id. */
@@ -251,62 +251,83 @@ export const handleRefundDecision = async ({
   approved,
   rejectionReason = null,
 }) => {
-  if (!refund || !customer?.email || !sellerUser?.email) return;
+  if (!refund) return;
 
   const refundIdDisplay = formatRefundIdForDisplay(refund);
 
-  await Promise.allSettled([
-    safeQueueEmail(
-      "refund_decision_customer",
-      {
-        customerEmail: customer.email,
-        customerName: customer.name || "Customer",
-        refundId: refundIdDisplay,
-        approved,
-        amount: refund.refundAmount || 0,
-        reason: rejectionReason || null,
-      },
-      `refund_decision_customer:${refund._id}:${customer._id}`
-    ),
-    safeQueueEmail(
-      "refund_decision_seller",
-      {
-        sellerEmail: sellerUser.email,
-        sellerName: seller?.shopName || sellerUser.name || "Seller",
-        refundId: refundIdDisplay,
-        approved,
-        amount: refund.refundAmount || 0,
-        reason: rejectionReason || null,
-      },
-      `refund_decision_seller:${refund._id}:${sellerUser._id}`
-    ),
-  ]);
+  const emailTasks = [];
+  const notificationTasks = [];
 
-  const refundIdDisplayForMessage = formatRefundIdForDisplay(refund);
+  if (customer?.email) {
+    emailTasks.push(
+      safeQueueEmail(
+        "refund_decision_customer",
+        {
+          customerEmail: customer.email,
+          customerName: customer.name || "Customer",
+          refundId: refundIdDisplay,
+          approved,
+          amount: refund.refundAmount || 0,
+          reason: rejectionReason || null,
+        },
+        `refund_decision_customer:${refund._id}:${customer._id}`
+      )
+    );
 
-  await Promise.allSettled([
-    safeCreateNotification(
-      customer._id,
-      "refund",
-      approved ? "Refund Approved" : "Refund Rejected",
-      approved
-        ? `Your refund request ${refundIdDisplayForMessage} has been approved.`
-        : `Your refund request ${refundIdDisplayForMessage} was rejected.${rejectionReason ? ` Reason: ${rejectionReason}` : ""}`,
-      { refundId: refund._id, approved, rejectionReason: rejectionReason || null },
-      "/user/refunds",
-      "high"
-    ),
-    safeCreateNotification(
-      sellerUser._id,
-      "refund",
-      approved ? "Refund Approved" : "Refund Rejected",
-      approved
-        ? `Refund request ${refundIdDisplayForMessage} for your product has been approved.`
-        : `Refund request ${refundIdDisplayForMessage} for your product was rejected.${rejectionReason ? ` Reason: ${rejectionReason}` : ""}`,
-      { refundId: refund._id, approved, rejectionReason: rejectionReason || null },
-      "/seller/return-refunds",
-      "high"
-    ),
-  ]);
+    const refundIdDisplayForMessage = formatRefundIdForDisplay(refund);
+    notificationTasks.push(
+      safeCreateNotification(
+        customer._id,
+        "refund",
+        approved ? "Refund Approved" : "Refund Rejected",
+        approved
+          ? `Your refund request ${refundIdDisplayForMessage} has been approved.`
+          : `Your refund request ${refundIdDisplayForMessage} was rejected.${rejectionReason ? ` Reason: ${rejectionReason}` : ""}`,
+        { refundId: refund._id, approved, rejectionReason: rejectionReason || null },
+        "/user/refunds",
+        "high"
+      )
+    );
+  }
+
+  if (sellerUser?.email) {
+    emailTasks.push(
+      safeQueueEmail(
+        "refund_decision_seller",
+        {
+          sellerEmail: sellerUser.email,
+          sellerName: seller?.shopName || sellerUser.name || "Seller",
+          refundId: refundIdDisplay,
+          approved,
+          amount: refund.refundAmount || 0,
+          reason: rejectionReason || null,
+        },
+        `refund_decision_seller:${refund._id}:${sellerUser._id}`
+      )
+    );
+
+    const refundIdDisplayForMessage = formatRefundIdForDisplay(refund);
+    notificationTasks.push(
+      safeCreateNotification(
+        sellerUser._id,
+        "refund",
+        approved ? "Refund Approved" : "Refund Rejected",
+        approved
+          ? `Refund request ${refundIdDisplayForMessage} for your product has been approved.`
+          : `Refund request ${refundIdDisplayForMessage} for your product was rejected.${rejectionReason ? ` Reason: ${rejectionReason}` : ""}`,
+        { refundId: refund._id, approved, rejectionReason: rejectionReason || null },
+        "/seller/return-refunds",
+        "high"
+      )
+    );
+  }
+
+  if (emailTasks.length) {
+    await Promise.allSettled(emailTasks);
+  }
+
+  if (notificationTasks.length) {
+    await Promise.allSettled(notificationTasks);
+  }
 };
 

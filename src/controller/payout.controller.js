@@ -158,6 +158,7 @@ const getPayoutReports = asyncHandler(async (req, res) => {
     payouts: payouts.map((p) => ({
       id: p._id,
       orderId: p.orderId?._id,
+      orderNumber: p.orderId?.orderNumber || null,
       amount: p.netAmount,
       commission: p.commissionAmount,
       status: p.status,

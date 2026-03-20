@@ -59,6 +59,8 @@ const orderSchema = new Schema(
     payoutAmount: { type: Number, default: null },
     couponId: { type: Schema.Types.ObjectId, ref: "Coupon", default: null },
     paymentMethod: { type: String, enum: ["PayPal", "Card", "Wallet", "Wallet+Card"], default: "PayPal" },
+    walletAmount: { type: Number, default: 0 },
+    cardAmount: { type: Number, default: 0 },
     paymentStatus: { type: String, enum: PAYMENT_STATUS, default: "pending", index: true },
     paypalOrderId: { type: String, default: null, index: true, unique: true, sparse: true },
     paypalCaptureId: { type: String, default: null },

@@ -19,7 +19,7 @@ const getMyLicenseKeys = asyncHandler(async (req, res) => {
     paymentStatus: 'paid',
     orderStatus: { $in: ['completed', 'PARTIALLY_REFUNDED', 'partially_completed'] },
   })
-    .select('_id items createdAt')
+    .select('_id orderNumber items createdAt')
     .populate('items.productId', 'name images')
     .sort({ createdAt: -1 });
 
@@ -33,6 +33,7 @@ const getMyLicenseKeys = asyncHandler(async (req, res) => {
           keyIds.push(keyId);
           keyOrderMap.set(keyId.toString(), {
             orderId: order._id,
+            orderNumber: order.orderNumber || null,
             orderDate: order.createdAt,
             productId: item.productId._id,
             productName: item.productId.name,
@@ -89,6 +90,7 @@ const getMyLicenseKeys = asyncHandler(async (req, res) => {
         productName: orderInfo?.productName || 'Unknown Product',
         productImage: orderInfo?.productImage,
         orderId: orderInfo?.orderId,
+        orderNumber: orderInfo?.orderNumber || null,
         orderDate: orderInfo?.orderDate,
         purchaseDate: key.assignedAt,
         emailSent: key.emailSent,

@@ -10,7 +10,14 @@ export const getActiveTrendingOffers = async () => {
     startTime: { $lte: now },
     endTime: { $gte: now },
   })
-    .populate('products', 'name price images slug')
+    .populate({
+      path: 'products',
+      select: 'name price images slug platform type productType',
+      populate: [
+        { path: 'platform', select: 'name' },
+        { path: 'type', select: 'name' },
+      ],
+    })
     .sort({ createdAt: -1 });
 };
 
